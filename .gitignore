@@ -16,9 +16,11 @@
 # next.js
 /.next/
 /out/
+/dist
 
 # production
 /build
+/android
 
 # misc
 .DS_Store
