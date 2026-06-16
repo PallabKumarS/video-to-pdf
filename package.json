@@ -2,15 +2,19 @@
   "name": "video-to-pdf",
   "version": "0.1.0",
   "private": true,
+  "main": "main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "biome check",
-    "format": "biome format --write"
+    "format": "biome format --write",
+    "electron:dev": "npm run build && electron .",
+    "electron:build": "npm run build && electron-builder"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
+    "@capacitor/core": "^8.4.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -30,11 +34,30 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.0",
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.3",
+    "electron-serve": "^3.0.1",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "build": {
+    "appId": "com.video.topdf",
+    "productName": "Video To PDF",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "public"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
   }
 }

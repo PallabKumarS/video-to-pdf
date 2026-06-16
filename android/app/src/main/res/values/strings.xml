@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Video To PDF</string>
+    <string name="title_activity_main">Video To PDF</string>
+    <string name="package_name">com.video.topdf</string>
+    <string name="custom_url_scheme">com.video.topdf</string>
+</resources>
