@@ -202,9 +202,9 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
                     min={1}
                     max={60}
                     step={1}
-                    value={[value]}
+                    value={value}
                     // biome-ignore lint/suspicious/noExplicitAny: <>
-                    onValueChange={(vals: any) => onChange(vals[0])}
+                    onValueChange={(val: any) => onChange(Array.isArray(val) ? val[0] : val)}
                     className="py-4"
                   />
                   {errors.interval && (
