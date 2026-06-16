@@ -283,7 +283,7 @@ export function SegmentProcessor({
             </>
           ) : (
             <>
-              Generate PDF
+              Review Final Selection
               <CheckCircle2 className="w-4 h-4 ml-2" />
             </>
           )}

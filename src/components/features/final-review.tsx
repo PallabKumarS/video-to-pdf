@@ -246,14 +246,6 @@ export function FinalReview({
             </CardDescription>
           </div>
           <div className="flex items-center gap-4">
-            <Button
-              variant="secondary"
-              onClick={() => setIsExtractionDialogOpen(true)}
-              className="font-medium"
-            >
-              <Crosshair className="w-4 h-4 mr-2" />
-              Extract Missing Frames
-            </Button>
             <div className="text-right border-l pl-4 border-border">
               <p className="text-sm font-medium text-muted-foreground">
                 Total Pages
@@ -293,18 +285,28 @@ export function FinalReview({
         </ScrollArea>
       </CardContent>
 
-      <CardFooter className="flex-none justify-between border-t border-border/50 bg-muted/20 p-6">
+      <CardFooter className="flex-none justify-between border-t border-border/50 bg-muted/20 p-6 flex-wrap gap-4">
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button
-          onClick={() => onComplete(frames)}
-          disabled={frames.length === 0}
-          className="min-w-50 h-12 text-lg font-semibold shadow-lg hover:shadow-primary/25"
-        >
-          Generate PDF
-          <CheckCircle2 className="w-5 h-5 ml-2" />
-        </Button>
+        <div className="flex items-center gap-4 ml-auto">
+          <Button
+            variant="secondary"
+            onClick={() => setIsExtractionDialogOpen(true)}
+            className="h-12 font-medium"
+          >
+            <Crosshair className="w-4 h-4 mr-2" />
+            Extract Missing Frames
+          </Button>
+          <Button
+            onClick={() => onComplete(frames)}
+            disabled={frames.length === 0}
+            className="min-w-50 h-12 text-lg font-semibold shadow-lg hover:shadow-primary/25"
+          >
+            Generate PDF
+            <CheckCircle2 className="w-5 h-5 ml-2" />
+          </Button>
+        </div>
       </CardFooter>
 
       <SubExtractionDialog

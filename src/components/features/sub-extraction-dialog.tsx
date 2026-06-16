@@ -14,7 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { Loader2, Settings2 } from "lucide-react";
 
 const subExtractionSchema = z
   .object({
@@ -132,34 +133,45 @@ export function SubExtractionDialog({
               </div>
             </div>
 
-            <div className="space-y-2 bg-accent/30 p-4 rounded-lg border border-border/50">
-              <Label htmlFor="interval">Capture Interval (seconds)</Label>
+            <div className="space-y-4 bg-accent/30 p-4 rounded-lg border border-border/50">
               <Controller
                 control={control}
                 name="interval"
-                render={({ field }) => (
-                  <Input
-                    id="interval"
-                    type="number"
-                    step="0.1"
-                    min={0.1}
-                    max={60}
-                    disabled={isExtracting}
-                    value={field.value}
-                    onChange={(e) =>
-                      field.onChange(parseFloat(e.target.value) || 0.1)
-                    }
-                  />
+                render={({ field: { value, onChange } }) => (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <Label className="flex items-center text-sm font-semibold">
+                          <Settings2 className="w-3 h-3 mr-2" />
+                          Capture Interval
+                        </Label>
+                      </div>
+                      <div className="text-lg font-bold text-primary">
+                        {value.toFixed(1)}s
+                      </div>
+                    </div>
+                    <Slider
+                      min={0.1}
+                      max={5}
+                      step={0.1}
+                      value={value}
+                      // biome-ignore lint/suspicious/noExplicitAny: <Slider type issue>
+                      onValueChange={(val: any) => onChange(Array.isArray(val) ? val[0] : val)}
+                      className="py-2"
+                      disabled={isExtracting}
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Slider allows up to 5s. (0.1s = 100ms). Lower interval =
+                      more frames.
+                    </p>
+                    {errors.interval && (
+                      <p className="text-xs text-destructive mt-1">
+                        {errors.interval.message}
+                      </p>
+                    )}
+                  </>
                 )}
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                E.g., 0.1 for 100ms, 1 for 1s. Lower interval = more frames.
-              </p>
-              {errors.interval && (
-                <p className="text-xs text-destructive">
-                  {errors.interval.message}
-                </p>
-              )}
             </div>
           </div>
           <DialogFooter>
