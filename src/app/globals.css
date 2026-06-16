@@ -127,10 +127,18 @@
     @apply border-border outline-ring/50;
   }
   html {
-    @apply font-sans scroll-smooth;
+    @apply font-sans;
   }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Subtle dot grid visible in dark mode */
+  .dark body {
+    background-image: radial-gradient(
+      oklch(1 0 0 / 4%) 1px,
+      transparent 1px
+    );
+    background-size: 24px 24px;
   }
 }
 
