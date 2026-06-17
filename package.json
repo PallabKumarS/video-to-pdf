@@ -1,6 +1,7 @@
 {
   "name": "video-to-pdf",
   "version": "0.3.0",
+  "author": "Pallab Kumar Sarker",
   "private": true,
   "main": "main.mjs",
   "scripts": {
