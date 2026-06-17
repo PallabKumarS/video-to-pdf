@@ -209,7 +209,7 @@ export function SegmentProcessor({
   }
 
   return (
-    <Card className="w-full max-w-5xl mx-auto border-border/50 shadow-lg bg-card/50 backdrop-blur-sm flex flex-col h-[85vh]">
+    <Card className="w-full mx-auto border-border/50 shadow-lg bg-card/50 backdrop-blur-sm flex flex-col h-[85vh]">
       <CardHeader className="flex-none border-b border-border/50 bg-muted/20">
         <div className="flex items-center justify-between">
           <div>
@@ -269,7 +269,7 @@ export function SegmentProcessor({
           </div>
         ) : (
           <ScrollArea className="h-full w-full p-6">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-20">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4 pb-20">
               {currentFrames.map((frame, _index) => (
                 // biome-ignore lint/a11y/noStaticElementInteractions: <>
                 // biome-ignore lint/a11y/useKeyWithClickEvents: <>

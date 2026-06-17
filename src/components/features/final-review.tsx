@@ -285,15 +285,15 @@ export function FinalReview({
         </ScrollArea>
       </CardContent>
 
-      <CardFooter className="flex-none justify-between border-t border-border/50 bg-muted/20 p-6 flex-wrap gap-4">
-        <Button variant="ghost" onClick={onCancel}>
+      <CardFooter className="flex-none flex-col sm:flex-row justify-between border-t border-border/50 bg-muted/20 p-4 sm:p-6 gap-4">
+        <Button variant="ghost" onClick={onCancel} className="w-full sm:w-auto order-last sm:order-first">
           Cancel
         </Button>
-        <div className="flex items-center gap-4 ml-auto">
+        <div className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-3 sm:gap-4 sm:ml-auto">
           <Button
             variant="secondary"
             onClick={() => setIsExtractionDialogOpen(true)}
-            className="h-12 font-medium"
+            className="h-12 font-medium w-full sm:w-auto"
           >
             <Crosshair className="w-4 h-4 mr-2" />
             Extract Missing Frames
@@ -301,7 +301,7 @@ export function FinalReview({
           <Button
             onClick={() => onComplete(frames)}
             disabled={frames.length === 0}
-            className="min-w-50 h-12 text-lg font-semibold shadow-lg hover:shadow-primary/25"
+            className="sm:min-w-50 h-12 text-lg font-semibold shadow-lg hover:shadow-primary/25 w-full sm:w-auto"
           >
             Generate PDF
             <CheckCircle2 className="w-5 h-5 ml-2" />
