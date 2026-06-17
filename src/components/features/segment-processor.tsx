@@ -28,7 +28,7 @@ import {
 } from "@/lib/video-utils";
 import Image from "next/image";
 
-const SEGMENT_DURATION_SECONDS = 5 * 60; // 5 minutes
+const SEGMENT_DURATION_SECONDS = 10 * 60; // 5 minutes
 
 interface SegmentProcessorProps {
   video: File;
