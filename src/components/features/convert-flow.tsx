@@ -6,6 +6,9 @@ import { SegmentProcessor } from "./segment-processor";
 import { FinalReview } from "./final-review";
 import { generatePdfFromFrames } from "@/lib/pdf-utils";
 import { ExtractedFrame, VideoMetadata } from "@/lib/video-utils";
+import { Capacitor } from "@capacitor/core";
+import { Filesystem, Directory } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 import {
   Card,
   CardContent,
@@ -72,16 +75,44 @@ export function ConvertFlow() {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!pdfBlob) return;
-    const url = URL.createObjectURL(pdfBlob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `video-to-pdf-${Date.now()}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const reader = new FileReader();
+        reader.readAsDataURL(pdfBlob);
+        reader.onloadend = async () => {
+          const base64data = reader.result as string;
+          const fileName = `video-to-pdf-${Date.now()}.pdf`;
+          
+          const result = await Filesystem.writeFile({
+            path: fileName,
+            data: base64data,
+            directory: Directory.Documents,
+          });
+          
+          await Share.share({
+            title: 'Your PDF',
+            text: 'Here is your generated PDF.',
+            url: result.uri,
+            dialogTitle: 'Save or Share PDF',
+          });
+        };
+      } catch (e) {
+        console.error("Error saving file", e);
+        alert("Could not save the PDF to your device.");
+      }
+    } else {
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `video-to-pdf-${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   const resetApp = () => {
