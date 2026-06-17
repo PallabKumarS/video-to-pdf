@@ -49,14 +49,14 @@ export function SegmentProcessor({
   const [metadata, setMetadata] = useState<VideoMetadata | null>(null);
   const [currentSegment, setCurrentSegment] = useState(0);
   const [totalSegments, setTotalSegments] = useState(1);
-  const [isExtracting, setIsExtracting] = useState(true);
-  const [progress, setProgress] = useState({ current: 0, total: 100 });
-
-  const [currentFrames, setCurrentFrames] = useState<ExtractedFrame[]>([]);
-  const [allSelectedFrames, setAllSelectedFrames] = useState<ExtractedFrame[]>(
-    [],
-  );
   const [error, setError] = useState<string | null>(null);
+  
+  type Status = "idle" | "extracting" | "done";
+  const [framesBySegment, setFramesBySegment] = useState<Record<number, ExtractedFrame[]>>({});
+  const [statusBySegment, setStatusBySegment] = useState<Record<number, Status>>({});
+  const [progressBySegment, setProgressBySegment] = useState<Record<number, { current: number; total: number }>>({});
+
+  const [allSelectedFrames, setAllSelectedFrames] = useState<ExtractedFrame[]>([]);
 
   // Load metadata on mount
   useEffect(() => {
@@ -67,7 +67,14 @@ export function SegmentProcessor({
         const meta = await getVideoMetadata(video);
         if (!mounted) return;
         setMetadata(meta);
-        setTotalSegments(Math.ceil(meta.duration / SEGMENT_DURATION_SECONDS));
+        const total = Math.ceil(meta.duration / SEGMENT_DURATION_SECONDS);
+        setTotalSegments(total);
+        
+        const initialStatus: Record<number, Status> = {};
+        for (let i = 0; i < total; i++) {
+           initialStatus[i] = "idle";
+        }
+        setStatusBySegment(initialStatus);
       } catch (err) {
         if (!mounted) return;
         setError(err instanceof Error ? err.message : "Failed to load video");
@@ -81,19 +88,38 @@ export function SegmentProcessor({
     };
   }, [video]);
 
-  // Extract frames when metadata or currentSegment changes
+  // Background Extraction Orchestrator
   useEffect(() => {
     let mounted = true;
 
-    if (!metadata) return;
+    if (!metadata || totalSegments <= 0) return;
+
+    // Determine the next segment to extract
+    // Priority: currentSegment if it's idle. Otherwise currentSegment + 1 if it's idle.
+    let targetSegment = -1;
+    if (statusBySegment[currentSegment] === "idle") {
+      targetSegment = currentSegment;
+    } else if (
+      statusBySegment[currentSegment] === "done" &&
+      currentSegment + 1 < totalSegments &&
+      statusBySegment[currentSegment + 1] === "idle"
+    ) {
+      targetSegment = currentSegment + 1;
+    }
+
+    if (targetSegment === -1) return; // Nothing to extract right now
+
+    // Check if anything is currently extracting
+    const isAnyExtracting = Object.values(statusBySegment).includes("extracting");
+    if (isAnyExtracting) return;
 
     const runExtraction = async () => {
-      setIsExtracting(true);
+      setStatusBySegment((prev) => ({ ...prev, [targetSegment]: "extracting" }));
       setError(null);
 
-      const startTime = currentSegment * SEGMENT_DURATION_SECONDS;
+      const startTime = targetSegment * SEGMENT_DURATION_SECONDS;
       const endTime = Math.min(
-        (currentSegment + 1) * SEGMENT_DURATION_SECONDS,
+        (targetSegment + 1) * SEGMENT_DURATION_SECONDS,
         metadata.duration,
       );
 
@@ -104,19 +130,25 @@ export function SegmentProcessor({
           endTime,
           interval,
           (current, total) => {
-            if (mounted) setProgress({ current, total });
+            if (mounted) {
+              setProgressBySegment((prev) => ({
+                ...prev,
+                [targetSegment]: { current, total },
+              }));
+            }
           },
         );
 
         if (!mounted) return;
-        setCurrentFrames(frames);
-        setIsExtracting(false);
+        
+        setFramesBySegment((prev) => ({ ...prev, [targetSegment]: frames }));
+        setStatusBySegment((prev) => ({ ...prev, [targetSegment]: "done" }));
       } catch (err) {
         if (!mounted) return;
         setError(
           err instanceof Error ? err.message : "Failed to extract frames",
         );
-        setIsExtracting(false);
+        setStatusBySegment((prev) => ({ ...prev, [targetSegment]: "idle" }));
       }
     };
 
@@ -125,15 +157,22 @@ export function SegmentProcessor({
     return () => {
       mounted = false;
     };
-  }, [metadata, currentSegment, video, interval]);
+  }, [metadata, currentSegment, totalSegments, statusBySegment, video, interval]);
 
   const toggleFrameSelection = (id: string) => {
-    setCurrentFrames((frames) =>
-      frames.map((f) => (f.id === id ? { ...f, selected: !f.selected } : f)),
-    );
+    setFramesBySegment((prev) => {
+      const frames = prev[currentSegment] || [];
+      return {
+        ...prev,
+        [currentSegment]: frames.map((f) =>
+          f.id === id ? { ...f, selected: !f.selected } : f
+        ),
+      };
+    });
   };
 
   const handleNextSegment = () => {
+    const currentFrames = framesBySegment[currentSegment] || [];
     // Save selected frames from current segment
     const selectedFromCurrent = currentFrames.filter((f) => f.selected);
     setAllSelectedFrames((prev) => [...prev, ...selectedFromCurrent]);
@@ -146,6 +185,10 @@ export function SegmentProcessor({
       onComplete([...allSelectedFrames, ...selectedFromCurrent], metadata!);
     }
   };
+
+  const isExtracting = statusBySegment[currentSegment] === "extracting" || statusBySegment[currentSegment] === "idle";
+  const currentFrames = framesBySegment[currentSegment] || [];
+  const progress = progressBySegment[currentSegment] || { current: 0, total: 100 };
 
   if (error) {
     return (

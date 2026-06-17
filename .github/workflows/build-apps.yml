@@ -46,53 +46,52 @@ jobs:
           name: video-to-pdf-android-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
-  build-ios:
-    name: Build iOS IPA (Unsigned)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  # build-ios:
+  #   name: Build iOS IPA (Unsigned)
+  #   runs-on: macos-latest
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: "npm"
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 24
+  #         cache: "npm"
 
-      - name: Install dependencies
-        run: npm install
+  #     - name: Install dependencies
+  #       run: npm install
 
-      - name: Build Next.js App
-        run: npm run build
+  #     - name: Build Next.js App
+  #       run: npm run build
 
-      - name: Sync Capacitor iOS
-        run: npx cap sync ios
+  #     - name: Sync Capacitor iOS
+  #       run: npx cap sync ios
 
+  #     - name: Build iOS App
+  #       run: |
+  #         xcodebuild \
+  #           -project App.xcodeproj \
+  #           -scheme App \
+  #           -configuration Release \
+  #           -sdk iphoneos \
+  #           -destination "generic/platform=iOS" \
+  #           CODE_SIGN_IDENTITY="" \
+  #           CODE_SIGNING_REQUIRED=NO \
+  #           CODE_SIGNING_ALLOWED=NO \
+  #           PROVISIONING_PROFILE_SPECIFIER="" \
+  #           CONFIGURATION_BUILD_DIR=build/Release-iphoneos \
+  #           build
+  #       working-directory: ios/App
 
-      - name: Build iOS App
-        run: |
-          xcodebuild \
-            -project App.xcodeproj \
-            -scheme App \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination "generic/platform=iOS" \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            CONFIGURATION_BUILD_DIR=build/Release-iphoneos \
-            build
-        working-directory: ios/App
+  #     - name: Package to IPA (Unsigned)
+  #       run: |
+  #         mkdir Payload
+  #         mv ios/App/build/Release-iphoneos/App.app Payload/
+  #         zip -r video-to-pdf-ios.ipa Payload
 
-      - name: Package to IPA (Unsigned)
-        run: |
-          mkdir Payload
-          mv ios/App/build/Release-iphoneos/App.app Payload/
-          zip -r video-to-pdf-ios.ipa Payload
-
-      - name: Upload iOS IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: video-to-pdf-ios-ipa
-          path: video-to-pdf-ios.ipa
+  #     - name: Upload iOS IPA
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: video-to-pdf-ios-ipa
+  #         path: video-to-pdf-ios.ipa

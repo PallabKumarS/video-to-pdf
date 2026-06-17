@@ -16,21 +16,12 @@ self.onmessage = async (e: MessageEvent) => {
       quality: 0.9,
     });
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      self.postMessage({
-        success: true,
-        id,
-        time,
-        dataUrl: reader.result as string,
-      });
-    };
-    
-    reader.onerror = () => {
-      self.postMessage({ success: false, error: "Failed to read blob" });
-    };
-    
-    reader.readAsDataURL(blob);
+    self.postMessage({
+      success: true,
+      id,
+      time,
+      blob,
+    });
   } catch (error) {
     self.postMessage({
       success: false,

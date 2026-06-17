@@ -83,12 +83,12 @@ export async function extractFrames(
 
     if (worker) {
       worker.onmessage = (e: MessageEvent) => {
-        const { success, id, time, dataUrl, error } = e.data;
+        const { success, id, time, blob, error } = e.data;
         if (success) {
           frames.push({
             id,
             time,
-            dataUrl,
+            dataUrl: URL.createObjectURL(blob),
             selected: true,
           });
         } else {
