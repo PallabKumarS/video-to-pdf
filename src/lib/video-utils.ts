@@ -56,70 +56,119 @@ export async function extractFrames(
     const ctx = canvas.getContext("2d");
     const frames: ExtractedFrame[] = [];
 
-    if (!ctx) {
-      reject(new Error("Failed to get canvas context"));
-      return;
+    // Initialize worker
+    let worker: Worker | null = null;
+    try {
+      worker = new Worker(new URL("./frame-worker.ts", import.meta.url));
+    } catch (e) {
+      console.warn("Web Workers not supported or failed to load. Falling back to main thread.", e);
+      if (!ctx) {
+        reject(new Error("Failed to get canvas context and worker failed"));
+        return;
+      }
+    }
+
+    const pendingTasks = new Set<string>();
+    let isVideoFinished = false;
+    let actualMaxTime = Infinity;
+
+    const checkCompletion = () => {
+      if (isVideoFinished && pendingTasks.size === 0) {
+        worker?.terminate();
+        URL.revokeObjectURL(video.src);
+        frames.sort((a, b) => a.time - b.time);
+        resolve(frames);
+      }
+    };
+
+    if (worker) {
+      worker.onmessage = (e: MessageEvent) => {
+        const { success, id, time, dataUrl, error } = e.data;
+        if (success) {
+          frames.push({
+            id,
+            time,
+            dataUrl,
+            selected: true,
+          });
+        } else {
+          console.error("Worker error:", error);
+        }
+        
+        pendingTasks.delete(id);
+        
+        if (onProgress) {
+          const total = Math.ceil((actualMaxTime - startTime) / intervalSeconds);
+          // When using worker, progress tracks encoded frames
+          onProgress(frames.length, total);
+        }
+        
+        checkCompletion();
+      };
     }
 
     video.preload = "auto";
-    video.muted = true; // Required for auto-play/seeking in some browsers
+    video.muted = true;
     video.playsInline = true;
 
     let currentTime = startTime;
-    const maxTime = Math.min(endTime, video.duration || Infinity);
 
     video.onloadeddata = () => {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      maxTime === Infinity
-        ? extractNextFrame(video.duration)
-        : extractNextFrame(maxTime);
+      actualMaxTime = Math.min(endTime, video.duration || Infinity);
+      if (!worker) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
+      extractNextFrame();
     };
 
     video.onerror = () => {
+      worker?.terminate();
       URL.revokeObjectURL(video.src);
       reject(new Error("Error loading video for frame extraction."));
     };
 
-    const extractNextFrame = async (actualMaxTime: number) => {
+    const extractNextFrame = () => {
       if (currentTime > actualMaxTime) {
-        URL.revokeObjectURL(video.src);
-        resolve(frames);
+        isVideoFinished = true;
+        checkCompletion();
         return;
       }
-
       video.currentTime = currentTime;
     };
 
-    video.onseeked = () => {
-      // Draw the current frame to canvas
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.9); // High quality JPEG
+    video.onseeked = async () => {
+      const id = crypto.randomUUID();
+      const frameTime = currentTime;
 
-      frames.push({
-        id: crypto.randomUUID(),
-        time: currentTime,
-        dataUrl,
-        selected: true, // Default to selected
-      });
-
-      if (onProgress) {
-        // Approximate progress based on time
-        const total = Math.ceil((endTime - startTime) / intervalSeconds);
-        const current = frames.length;
-        onProgress(current, total);
+      if (worker && typeof createImageBitmap !== "undefined") {
+        try {
+          const bitmap = await createImageBitmap(video);
+          pendingTasks.add(id);
+          worker.postMessage({ bitmap, id, time: frameTime }, [bitmap]);
+        } catch (e) {
+          console.error("Failed to create ImageBitmap", e);
+        }
+      } else if (ctx) {
+        // Fallback to main thread canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+        frames.push({ id, time: frameTime, dataUrl, selected: true });
+        
+        if (onProgress) {
+          const total = Math.ceil((actualMaxTime - startTime) / intervalSeconds);
+          onProgress(frames.length, total);
+        }
       }
 
       currentTime += intervalSeconds;
-      const actualMaxTime = Math.min(endTime, video.duration || Infinity);
-
+      
       if (currentTime > actualMaxTime) {
-        URL.revokeObjectURL(video.src);
-        resolve(frames);
+        isVideoFinished = true;
+        checkCompletion();
       } else {
-        // We use requestAnimationFrame to allow the browser to breathe and update UI
         requestAnimationFrame(() => {
-          video.currentTime = currentTime;
+          extractNextFrame();
         });
       }
     };
