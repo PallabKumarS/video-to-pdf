@@ -2,7 +2,7 @@
   "name": "video-to-pdf",
   "version": "0.2.0",
   "private": true,
-  "main": "main.js",
+  "main": "main.mjs",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
