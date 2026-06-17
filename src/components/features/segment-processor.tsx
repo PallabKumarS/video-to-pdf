@@ -309,15 +309,15 @@ export function SegmentProcessor({
         )}
       </CardContent>
 
-      <CardFooter className="flex-none justify-between border-t border-border/50 bg-muted/20 p-6">
-        <Button variant="ghost" onClick={onCancel} disabled={isExtracting}>
+      <CardFooter className="flex-none flex-col sm:flex-row justify-between border-t border-border/50 bg-muted/20 p-4 sm:p-6 gap-4">
+        <Button variant="ghost" onClick={onCancel} disabled={isExtracting} className="w-full sm:w-auto order-last sm:order-first">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Cancel
         </Button>
         <Button
           onClick={handleNextSegment}
           disabled={isExtracting}
-          className="min-w-37.5"
+          className="min-w-37.5 w-full sm:w-auto"
         >
           {currentSegment < totalSegments - 1 ? (
             <>
