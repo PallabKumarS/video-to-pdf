@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -50,48 +50,55 @@ export function SegmentProcessor({
   const [currentSegment, setCurrentSegment] = useState(0);
   const [totalSegments, setTotalSegments] = useState(1);
   const [error, setError] = useState<string | null>(null);
-  
-  type Status = "idle" | "extracting" | "done";
-  const [framesBySegment, setFramesBySegment] = useState<Record<number, ExtractedFrame[]>>({});
-  const [statusBySegment, setStatusBySegment] = useState<Record<number, Status>>({});
-  const [progressBySegment, setProgressBySegment] = useState<Record<number, { current: number; total: number }>>({});
 
-  const [allSelectedFrames, setAllSelectedFrames] = useState<ExtractedFrame[]>([]);
+  type Status = "idle" | "extracting" | "done";
+  const [framesBySegment, setFramesBySegment] = useState<
+    Record<number, ExtractedFrame[]>
+  >({});
+  const [statusBySegment, setStatusBySegment] = useState<
+    Record<number, Status>
+  >({});
+  const [progressBySegment, setProgressBySegment] = useState<
+    Record<number, { current: number; total: number }>
+  >({});
+
+  const [allSelectedFrames, setAllSelectedFrames] = useState<ExtractedFrame[]>(
+    [],
+  );
+
+  const isComponentMounted = useRef(true);
+  useEffect(() => {
+    return () => {
+      isComponentMounted.current = false;
+    };
+  }, []);
 
   // Load metadata on mount
   useEffect(() => {
-    let mounted = true;
-
     const init = async () => {
       try {
         const meta = await getVideoMetadata(video);
-        if (!mounted) return;
+        if (!isComponentMounted.current) return;
         setMetadata(meta);
         const total = Math.ceil(meta.duration / SEGMENT_DURATION_SECONDS);
         setTotalSegments(total);
-        
+
         const initialStatus: Record<number, Status> = {};
         for (let i = 0; i < total; i++) {
-           initialStatus[i] = "idle";
+          initialStatus[i] = "idle";
         }
         setStatusBySegment(initialStatus);
       } catch (err) {
-        if (!mounted) return;
+        if (!isComponentMounted.current) return;
         setError(err instanceof Error ? err.message : "Failed to load video");
       }
     };
 
     init();
-
-    return () => {
-      mounted = false;
-    };
   }, [video]);
 
   // Background Extraction Orchestrator
   useEffect(() => {
-    let mounted = true;
-
     if (!metadata || totalSegments <= 0) return;
 
     // Determine the next segment to extract
@@ -110,11 +117,15 @@ export function SegmentProcessor({
     if (targetSegment === -1) return; // Nothing to extract right now
 
     // Check if anything is currently extracting
-    const isAnyExtracting = Object.values(statusBySegment).includes("extracting");
+    const isAnyExtracting =
+      Object.values(statusBySegment).includes("extracting");
     if (isAnyExtracting) return;
 
     const runExtraction = async () => {
-      setStatusBySegment((prev) => ({ ...prev, [targetSegment]: "extracting" }));
+      setStatusBySegment((prev) => ({
+        ...prev,
+        [targetSegment]: "extracting",
+      }));
       setError(null);
 
       const startTime = targetSegment * SEGMENT_DURATION_SECONDS;
@@ -130,7 +141,7 @@ export function SegmentProcessor({
           endTime,
           interval,
           (current, total) => {
-            if (mounted) {
+            if (isComponentMounted.current) {
               setProgressBySegment((prev) => ({
                 ...prev,
                 [targetSegment]: { current, total },
@@ -139,12 +150,12 @@ export function SegmentProcessor({
           },
         );
 
-        if (!mounted) return;
-        
+        if (!isComponentMounted.current) return;
+
         setFramesBySegment((prev) => ({ ...prev, [targetSegment]: frames }));
         setStatusBySegment((prev) => ({ ...prev, [targetSegment]: "done" }));
       } catch (err) {
-        if (!mounted) return;
+        if (!isComponentMounted.current) return;
         setError(
           err instanceof Error ? err.message : "Failed to extract frames",
         );
@@ -153,11 +164,14 @@ export function SegmentProcessor({
     };
 
     runExtraction();
-
-    return () => {
-      mounted = false;
-    };
-  }, [metadata, currentSegment, totalSegments, statusBySegment, video, interval]);
+  }, [
+    metadata,
+    currentSegment,
+    totalSegments,
+    statusBySegment,
+    video,
+    interval,
+  ]);
 
   const toggleFrameSelection = (id: string) => {
     setFramesBySegment((prev) => {
@@ -165,7 +179,7 @@ export function SegmentProcessor({
       return {
         ...prev,
         [currentSegment]: frames.map((f) =>
-          f.id === id ? { ...f, selected: !f.selected } : f
+          f.id === id ? { ...f, selected: !f.selected } : f,
         ),
       };
     });
@@ -186,9 +200,14 @@ export function SegmentProcessor({
     }
   };
 
-  const isExtracting = statusBySegment[currentSegment] === "extracting" || statusBySegment[currentSegment] === "idle";
+  const isExtracting =
+    statusBySegment[currentSegment] === "extracting" ||
+    statusBySegment[currentSegment] === "idle";
   const currentFrames = framesBySegment[currentSegment] || [];
-  const progress = progressBySegment[currentSegment] || { current: 0, total: 100 };
+  const progress = progressBySegment[currentSegment] || {
+    current: 0,
+    total: 100,
+  };
 
   if (error) {
     return (
@@ -310,7 +329,12 @@ export function SegmentProcessor({
       </CardContent>
 
       <CardFooter className="flex-none flex-col sm:flex-row justify-between border-t border-border/50 bg-muted/20 p-4 sm:p-6 gap-4">
-        <Button variant="ghost" onClick={onCancel} disabled={isExtracting} className="w-full sm:w-auto order-last sm:order-first">
+        <Button
+          variant="ghost"
+          onClick={onCancel}
+          disabled={isExtracting}
+          className="w-full sm:w-auto order-last sm:order-first"
+        >
           <ArrowLeft className="w-4 h-4 mr-2" />
           Cancel
         </Button>
