@@ -114,28 +114,14 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create or Update Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "v${{ steps.pkg_version.outputs.version }}"
-          name: "Video To PDF v${{ steps.pkg_version.outputs.version }}"
-          body: |
-            # Release v${{ steps.pkg_version.outputs.version }}: YouTube Link & Google Sign-In Support
-
-            ### New Features & Enhancements
-            * **YouTube Link Support:** Seamlessly process YouTube videos directly by pasting their link.
-            * **Local Processing & Privacy:** All video downloading and frame extraction execute locally on your machine with zero server storage.
-            * **Google Sign-In & Cookie Support:** Access age-restricted or private YouTube videos via an embedded Google login window or custom Netscape cookies.
-            * **Cross-Platform Compatibility:** Enhanced for both Windows desktop and Android mobile devices.
-
-            ---
-
-            **Downloads:**
-            * **Windows Desktop:** `video-to-pdf-win.exe`
-            * **Android Mobile:** `video-to-pdf.apk`
-          draft: false
-          prerelease: false
-          files: |
-            release-assets/video-to-pdf-win.exe
-            release-assets/video-to-pdf.apk
+        run: |
+          TAG="v${{ steps.pkg_version.outputs.version }}"
+          TITLE="Video To PDF v${{ steps.pkg_version.outputs.version }}"
+          
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TITLE" --notes "Release $TAG"
+          fi
+          
+          gh release upload "$TAG" release-assets/video-to-pdf-win.exe release-assets/video-to-pdf.apk --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
