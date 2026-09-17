@@ -117,9 +117,13 @@ export function downloadYoutubeVideo(url, onProgress) {
 
     const args = [
       "-f",
-      "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+      "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]/best[ext=mp4]/best",
       "--no-playlist",
       "--force-overwrites",
+      "--no-check-certificates",
+      "--geo-bypass",
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
       "-o",
       outputPath,
     ];
@@ -175,7 +179,9 @@ export function downloadYoutubeVideo(url, onProgress) {
           stderr.includes("Sign in") ||
           stderr.includes("login") ||
           stderr.includes("Private video") ||
-          stderr.includes("bot");
+          stderr.includes("bot") ||
+          stderr.includes("HTTP Error 429") ||
+          stderr.includes("confirm you're not a bot");
 
         const err = new Error(
           isAuthError

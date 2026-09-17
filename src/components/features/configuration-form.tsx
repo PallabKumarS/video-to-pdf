@@ -212,7 +212,25 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
             }
           } catch (nativeErr) {
             await listener.remove();
-            throw nativeErr;
+            const errorMsg =
+              nativeErr instanceof Error
+                ? nativeErr.message
+                : String(nativeErr);
+
+            if (
+              errorMsg.includes("LOGIN_REQUIRED") ||
+              errorMsg.includes("Sign in") ||
+              errorMsg.includes("bot") ||
+              errorMsg.includes("cookies")
+            ) {
+              toast.error(
+                "This video requires authentication. Please sign in with your Google account.",
+              );
+              setAuthModalOpen(true);
+            } else {
+              toast.error(errorMsg);
+            }
+            return;
           }
         } else if (electronAPI?.downloadYoutube) {
           const res = await electronAPI.downloadYoutube(youtubeUrl.trim());
@@ -227,9 +245,12 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
             if (
               errorMsg.includes("LOGIN_REQUIRED") ||
               errorMsg.includes("Sign in") ||
-              errorMsg.includes("bot")
+              errorMsg.includes("bot") ||
+              errorMsg.includes("cookies")
             ) {
-              toast.error("This video requires a Google or YouTube login.");
+              toast.error(
+                "This video requires authentication. Please sign in with your Google account.",
+              );
               setAuthModalOpen(true);
             } else {
               toast.error(errorMsg);
@@ -402,9 +423,20 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
                   className="h-11 text-sm bg-background/80"
                 />
 
+                {!electronAPI?.downloadYoutube &&
+                  !Capacitor.isNativePlatform() && (
+                    <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg text-xs text-muted-foreground">
+                      Direct YouTube downloading runs 100% locally on your
+                      device inside the Desktop (Windows) and Mobile (Android)
+                      applications. In web browsers, please use the{" "}
+                      <strong>Upload File</strong> tab to process local videos.
+                    </div>
+                  )}
+
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  The video will be downloaded locally via yt-dlp on your
-                  machine, then converted directly into frames.
+                  The video is retrieved locally on your device without
+                  third-party servers, then extracted into high-resolution
+                  frames.
                 </p>
 
                 {isDownloadingYt && ytProgress && (
