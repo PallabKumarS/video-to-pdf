@@ -31,6 +31,11 @@ import { useState, useRef, useEffect } from "react";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { AuthModal } from "./auth-modal";
+import { downloadYoutube } from "@/features/youtube/services/download-orchestrator";
+import {
+  isAccountConnected,
+  setAccountConnected,
+} from "@/features/youtube/utils/auth-storage";
 
 const configSchema = z.object({
   interval: z.number().min(1).max(60),
@@ -59,7 +64,9 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
     eta: string;
   } | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [hasSavedCookies, setHasSavedCookies] = useState(false);
+  const [hasSavedCookies, setHasSavedCookies] = useState(() => {
+    return isAccountConnected();
+  });
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -75,13 +82,28 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
         registerPlugin<NativeAuthPlugin>("YouTubeDownloader");
       NativeDownloader.checkCookies()
         .then((res) => {
-          setHasSavedCookies(res?.hasCookies || false);
+          const connected = res?.hasCookies || false;
+          setHasSavedCookies(connected);
+          setAccountConnected(connected);
         })
         .catch(() => {});
     } else if (electronAPI?.checkCookies) {
       electronAPI.checkCookies().then((res: { hasCookies: boolean }) => {
-        setHasSavedCookies(res?.hasCookies || false);
+        const connected = res?.hasCookies || false;
+        setHasSavedCookies(connected);
+        setAccountConnected(connected);
       });
+    } else {
+      fetch("http://127.0.0.1:3001/api/youtube/check-cookies")
+        .then((r) => r.json())
+        .then((res) => {
+          const connected = res.hasCookies || isAccountConnected();
+          setHasSavedCookies(connected);
+          setAccountConnected(connected);
+        })
+        .catch(() => {
+          setHasSavedCookies(isAccountConnected());
+        });
     }
   }, [electronAPI]);
 
@@ -157,112 +179,35 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
         return;
       }
 
-      if (!electronAPI?.downloadYoutube && !Capacitor.isNativePlatform()) {
-        toast.error(
-          "Please use the Desktop or Android application to download YouTube videos locally.",
-        );
-        return;
-      }
-
       setIsDownloadingYt(true);
       setYtProgress({ percent: 0, speed: "Starting...", eta: "" });
 
       try {
-        if (Capacitor.isNativePlatform()) {
-          interface YouTubeDownloaderPluginType {
-            downloadVideo: (options: { url: string }) => Promise<{
-              filePath: string;
-              streamUrl: string;
-              title: string;
-            }>;
-            addListener: (
-              eventName: string,
-              listenerFunc: (info: {
-                percent: number;
-                speed: string;
-                eta: string;
-              }) => void,
-            ) => Promise<{ remove: () => Promise<void> }>;
-          }
+        const result = await downloadYoutube(youtubeUrl.trim(), (info) => {
+          setYtProgress(info);
+        });
 
-          const NativeDownloader =
-            registerPlugin<YouTubeDownloaderPluginType>("YouTubeDownloader");
+        toast.success("YouTube video downloaded successfully!");
+        onSubmit({
+          video: result.streamUrl,
+          interval: values.interval,
+        });
+      } catch (dlErr) {
+        const errorMsg = dlErr instanceof Error ? dlErr.message : String(dlErr);
 
-          const listener = await NativeDownloader.addListener(
-            "youtube:progress",
-            (info) => {
-              setYtProgress(info);
-            },
+        if (
+          errorMsg.includes("LOGIN_REQUIRED") ||
+          errorMsg.includes("Sign in") ||
+          errorMsg.includes("bot") ||
+          errorMsg.includes("cookies")
+        ) {
+          toast.error(
+            "This video requires authentication. Please sign in with your Google account.",
           );
-
-          try {
-            const res = await NativeDownloader.downloadVideo({
-              url: youtubeUrl.trim(),
-            });
-            await listener.remove();
-
-            if (res?.streamUrl) {
-              toast.success("YouTube video downloaded successfully!");
-              onSubmit({
-                video: res.streamUrl,
-                interval: values.interval,
-              });
-            } else {
-              toast.error("Could not retrieve video stream on Android.");
-            }
-          } catch (nativeErr) {
-            await listener.remove();
-            const errorMsg =
-              nativeErr instanceof Error
-                ? nativeErr.message
-                : String(nativeErr);
-
-            if (
-              errorMsg.includes("LOGIN_REQUIRED") ||
-              errorMsg.includes("Sign in") ||
-              errorMsg.includes("bot") ||
-              errorMsg.includes("cookies")
-            ) {
-              toast.error(
-                "This video requires authentication. Please sign in with your Google account.",
-              );
-              setAuthModalOpen(true);
-            } else {
-              toast.error(errorMsg);
-            }
-            return;
-          }
-        } else if (electronAPI?.downloadYoutube) {
-          const res = await electronAPI.downloadYoutube(youtubeUrl.trim());
-          if (res?.success && res.data?.streamUrl) {
-            toast.success("YouTube video downloaded successfully!");
-            onSubmit({
-              video: res.data.streamUrl,
-              interval: values.interval,
-            });
-          } else {
-            const errorMsg = res?.error || "Download failed";
-            if (
-              errorMsg.includes("LOGIN_REQUIRED") ||
-              errorMsg.includes("Sign in") ||
-              errorMsg.includes("bot") ||
-              errorMsg.includes("cookies")
-            ) {
-              toast.error(
-                "This video requires authentication. Please sign in with your Google account.",
-              );
-              setAuthModalOpen(true);
-            } else {
-              toast.error(errorMsg);
-            }
-          }
+          setAuthModalOpen(true);
+        } else {
+          toast.error(errorMsg);
         }
-      } catch (err) {
-        toast.error(
-          err instanceof Error
-            ? err.message
-            : "Failed to download YouTube video.",
-        );
       } finally {
         setIsDownloadingYt(false);
         setYtProgress(null);
@@ -423,21 +368,10 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
                   className="h-11 text-sm bg-background/80"
                 />
 
-                {!electronAPI?.downloadYoutube &&
-                  !Capacitor.isNativePlatform() && (
-                    <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg text-xs text-muted-foreground">
-                      Direct YouTube downloading runs 100% locally on your
-                      device inside the Desktop (Windows) and Mobile (Android)
-                      applications. In web browsers, please use the{" "}
-                      <strong>Upload File</strong> tab to process local videos.
-                    </div>
-                  )}
-
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  The video is retrieved locally on your device without
-                  third-party servers, then extracted into high-resolution
-                  frames.
-                </p>
+                <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg text-xs text-muted-foreground">
+                  Direct YouTube downloading runs 100% locally on your device
+                  across Web, Desktop, and Android.
+                </div>
 
                 {isDownloadingYt && ytProgress && (
                   <div className="space-y-2 pt-2">

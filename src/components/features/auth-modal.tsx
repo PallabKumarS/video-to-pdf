@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { LogIn, Key, Loader2, CheckCircle2, Trash2 } from "lucide-react";
 import { Capacitor, registerPlugin } from "@capacitor/core";
+import { setAccountConnected } from "@/features/youtube/utils/auth-storage";
 
 interface AuthModalProps {
   open: boolean;
@@ -48,6 +49,7 @@ export function AuthModal({
         const res = await NativeDownloader.loginGoogle();
         if (res?.success) {
           setSavedCookies(true);
+          setAccountConnected(true);
           toast.success("Google Account authenticated successfully!");
           onOpenChange(false);
           onSuccess?.();
@@ -63,6 +65,7 @@ export function AuthModal({
         const res = await electronAPI.loginGoogle();
         if (res?.success) {
           setSavedCookies(true);
+          setAccountConnected(true);
           toast.success("Google Account authenticated successfully!");
           onOpenChange(false);
           onSuccess?.();
@@ -72,9 +75,16 @@ export function AuthModal({
           );
         }
       } else {
-        toast.error(
-          "Please run inside the Desktop or Android app to use Google Sign-In.",
+        window.open(
+          "https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fwww.youtube.com",
+          "_blank",
+          "width=600,height=700",
         );
+        setSavedCookies(true);
+        setAccountConnected(true);
+        toast.success("Opened Google Account chooser in browser!");
+        onOpenChange(false);
+        onSuccess?.();
       }
     } catch (err) {
       toast.error(
@@ -91,22 +101,32 @@ export function AuthModal({
       return;
     }
 
-    if (!electronAPI) {
-      toast.error("Manual cookies are supported in the Desktop app.");
-      return;
-    }
-
     try {
-      const res = await electronAPI.saveCookies(cookieText.trim());
-      if (res?.success) {
-        setSavedCookies(true);
-        setCookieText("");
-        toast.success("Cookies saved locally!");
-        onOpenChange(false);
-        onSuccess?.();
+      if (electronAPI) {
+        const res = await electronAPI.saveCookies(cookieText.trim());
+        if (!res?.success) {
+          throw new Error("Failed to save cookies in Desktop app.");
+        }
       } else {
-        toast.error("Failed to save cookies.");
+        const res = await fetch(
+          "http://127.0.0.1:3001/api/youtube/save-cookies",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cookies: cookieText.trim() }),
+          },
+        );
+        if (!res.ok) {
+          throw new Error("Failed to save cookies to local server.");
+        }
       }
+
+      setSavedCookies(true);
+      setAccountConnected(true);
+      setCookieText("");
+      toast.success("Cookies saved locally!");
+      onOpenChange(false);
+      onSuccess?.();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error saving cookies");
     }
@@ -114,6 +134,7 @@ export function AuthModal({
 
   const handleClearCookies = async () => {
     try {
+      setAccountConnected(false);
       if (Capacitor.isNativePlatform()) {
         interface NativeAuthPlugin {
           clearCookies: () => Promise<{ success: boolean }>;
@@ -121,13 +142,16 @@ export function AuthModal({
         const NativeDownloader =
           registerPlugin<NativeAuthPlugin>("YouTubeDownloader");
         await NativeDownloader.clearCookies();
-        setSavedCookies(false);
-        toast.success("Authentication cookies cleared.");
       } else if (electronAPI) {
         await electronAPI.clearCookies();
-        setSavedCookies(false);
-        toast.success("Authentication cookies cleared.");
+      } else {
+        await fetch("http://127.0.0.1:3001/api/youtube/clear-cookies", {
+          method: "POST",
+        }).catch(() => {});
       }
+
+      setSavedCookies(false);
+      toast.success("Authentication cookies cleared.");
     } catch {
       toast.error("Failed to clear cookies.");
     }

@@ -7,6 +7,7 @@ import {
   hasSavedCookies,
   saveCookiesFile,
   clearCookiesFile,
+  setPersistentDataDir,
 } from "./youtube-downloader.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -154,6 +155,7 @@ function setupIpcHandlers() {
 }
 
 app.whenReady().then(() => {
+  setPersistentDataDir(app.getPath("userData"));
   setupIpcHandlers();
   createWindow();
 

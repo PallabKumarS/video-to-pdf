@@ -1,18 +1,18 @@
 {
   "name": "video-to-pdf",
-  "version": "2.0.2",
+  "version": "3.0.0",
   "author": "Pallab Kumar Sarker",
   "private": true,
   "main": "main.mjs",
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"NEXT,YT-SRV\" -c \"cyan,magenta\" \"next dev\" \"node server/youtube-server.mjs\"",
     "build": "next build",
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write",
     "electron:dev": "npm run build && electron .",
     "electron:build": "npm run build && electron-builder",
-    "android:build": "set \"JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr\" && set \"ANDROID_HOME=C:\\Users\\N3th3rLord\\AppData\\Local\\Android\\Sdk\" && cd android && .\\gradlew assembleDebug && cd .. && node -e \"require('fs').copyFileSync('android/app/build/outputs/apk/debug/app-debug.apk', 'dist/video-to-pdf.apk')\""
+    "android:build": "set \"JAVA_HOME=C:\\Program Files\\Microsoft\\jdk-17.0.20.101-hotspot\" && set \"ANDROID_HOME=C:\\Users\\N3th3rLord\\AppData\\Local\\Android\\Sdk\" && cd android && .\\gradlew assembleDebug && cd .. && node -e \"require('fs').copyFileSync('android/app/build/outputs/apk/debug/app-debug.apk', 'dist/video-to-pdf.apk')\""
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

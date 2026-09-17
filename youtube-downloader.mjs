@@ -8,9 +8,15 @@ let activeServer = null;
 let serverPort = 0;
 let currentVideoPath = "";
 
+let persistentDataDir = "";
+
+export function setPersistentDataDir(dir) {
+  persistentDataDir = dir;
+}
+
 export function getCookiesFilePath() {
-  const tempDir = os.tmpdir();
-  return path.join(tempDir, "vidtopdf_yt_cookies.txt");
+  const baseDir = persistentDataDir || os.tmpdir();
+  return path.join(baseDir, "vidtopdf_yt_cookies.txt");
 }
 
 export function hasSavedCookies() {
@@ -64,7 +70,10 @@ export async function startLocalMediaServer() {
       if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSizeLimit = 5 * 1024 * 1024;
+        const end = parts[1]
+          ? parseInt(parts[1], 10)
+          : Math.min(start + chunkSizeLimit - 1, fileSize - 1);
         const chunksize = end - start + 1;
         const fileStream = fs.createReadStream(currentVideoPath, {
           start,
@@ -117,7 +126,7 @@ export function downloadYoutubeVideo(url, onProgress) {
 
     const args = [
       "-f",
-      "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]/best[ext=mp4]/best",
+      "bestvideo[height<=720][ext=mp4]/best[height<=720]/best",
       "--no-playlist",
       "--force-overwrites",
       "--no-check-certificates",

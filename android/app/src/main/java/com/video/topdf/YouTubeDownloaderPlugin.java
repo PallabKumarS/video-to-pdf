@@ -15,6 +15,10 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.accounts.AccountManager;
+import android.content.Intent;
+import androidx.activity.result.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -28,6 +32,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import android.content.SharedPreferences;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -44,19 +49,54 @@ public class YouTubeDownloaderPlugin extends Plugin {
     private static final String VISIONOS_USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
 
+    @Override
+    public void load() {
+        super.load();
+        try {
+            CookieManager cookieManager = CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);
+            SharedPreferences prefs = getContext().getSharedPreferences("vidtopdf_auth", Context.MODE_PRIVATE);
+            String savedYt = prefs.getString("yt_cookies", null);
+            String savedGoogle = prefs.getString("google_cookies", null);
+            if (savedYt != null && !savedYt.isEmpty()) {
+                String[] parts = savedYt.split(";");
+                for (String part : parts) {
+                    cookieManager.setCookie("https://www.youtube.com", part.trim());
+                }
+            }
+            if (savedGoogle != null && !savedGoogle.isEmpty()) {
+                String[] parts = savedGoogle.split(";");
+                for (String part : parts) {
+                    cookieManager.setCookie("https://accounts.google.com", part.trim());
+                }
+            }
+            cookieManager.flush();
+        } catch (Exception ignored) {}
+    }
+
     @PluginMethod
     public void checkCookies(PluginCall call) {
+        SharedPreferences prefs = getContext().getSharedPreferences("vidtopdf_auth", Context.MODE_PRIVATE);
+        boolean hasAuth = prefs.getBoolean("has_auth", false);
+        String accountName = prefs.getString("account_name", "");
         String ytCookies = CookieManager.getInstance().getCookie("https://www.youtube.com");
         String googleCookies = CookieManager.getInstance().getCookie("https://accounts.google.com");
-        boolean hasCookies = (ytCookies != null && (ytCookies.contains("LOGIN_INFO") || ytCookies.contains("SAPISID") || ytCookies.contains("SID"))) ||
+        boolean hasCookies = hasAuth ||
+                             !accountName.isEmpty() ||
+                             (ytCookies != null && (ytCookies.contains("LOGIN_INFO") || ytCookies.contains("SAPISID") || ytCookies.contains("SID"))) ||
                              (googleCookies != null && (googleCookies.contains("SID") || googleCookies.contains("SAPISID")));
         JSObject ret = new JSObject();
         ret.put("hasCookies", hasCookies);
+        if (!accountName.isEmpty()) {
+            ret.put("accountName", accountName);
+        }
         call.resolve(ret);
     }
 
     @PluginMethod
     public void clearCookies(PluginCall call) {
+        SharedPreferences prefs = getContext().getSharedPreferences("vidtopdf_auth", Context.MODE_PRIVATE);
+        prefs.edit().clear().apply();
         CookieManager.getInstance().removeAllCookies(value -> {
             CookieManager.getInstance().flush();
             JSObject ret = new JSObject();
@@ -67,6 +107,36 @@ public class YouTubeDownloaderPlugin extends Plugin {
 
     @PluginMethod
     public void loginGoogle(PluginCall call) {
+        try {
+            Intent intent = AccountManager.newChooseAccountIntent(
+                    null,
+                    null,
+                    new String[]{"com.google"},
+                    null,
+                    null,
+                    null,
+                    null
+            );
+            startActivityForResult(call, intent, "handleAccountPickerResult");
+        } catch (Exception e) {
+            openWebLoginDialog(call, null);
+        }
+    }
+
+    @ActivityCallback
+    private void handleAccountPickerResult(PluginCall call, ActivityResult result) {
+        String accountName = null;
+        if (result.getResultCode() == android.app.Activity.RESULT_OK && result.getData() != null) {
+            accountName = result.getData().getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
+            if (accountName != null && !accountName.isEmpty()) {
+                SharedPreferences prefs = getContext().getSharedPreferences("vidtopdf_auth", Context.MODE_PRIVATE);
+                prefs.edit().putString("account_name", accountName).apply();
+            }
+        }
+        openWebLoginDialog(call, accountName);
+    }
+
+    private void openWebLoginDialog(PluginCall call, String hintEmail) {
         getActivity().runOnUiThread(() -> {
             try {
                 Context context = getActivity();
@@ -139,9 +209,26 @@ public class YouTubeDownloaderPlugin extends Plugin {
                         authDialog.dismiss();
                     }
                     String ytCookies = cookieManager.getCookie("https://www.youtube.com");
-                    boolean success = ytCookies != null && !ytCookies.isEmpty();
+                    String googleCookies = cookieManager.getCookie("https://accounts.google.com");
+                    boolean success = (ytCookies != null && !ytCookies.isEmpty()) || (googleCookies != null && !googleCookies.isEmpty());
+
+                    if (success) {
+                        SharedPreferences prefs = getContext().getSharedPreferences("vidtopdf_auth", Context.MODE_PRIVATE);
+                        SharedPreferences.Editor editor = prefs.edit()
+                             .putString("yt_cookies", ytCookies)
+                             .putString("google_cookies", googleCookies)
+                             .putBoolean("has_auth", true);
+                        if (hintEmail != null && !hintEmail.isEmpty()) {
+                            editor.putString("account_name", hintEmail);
+                        }
+                        editor.apply();
+                    }
+
                     JSObject ret = new JSObject();
                     ret.put("success", success);
+                    if (hintEmail != null && !hintEmail.isEmpty()) {
+                        ret.put("accountName", hintEmail);
+                    }
                     call.resolve(ret);
                 };
 
@@ -178,7 +265,13 @@ public class YouTubeDownloaderPlugin extends Plugin {
                 authDialog.setOnCancelListener(dialogInterface -> finishAuth.run());
 
                 authDialog.show();
-                webView.loadUrl("https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue");
+                String loginUrl = "https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue";
+                if (hintEmail != null && !hintEmail.isEmpty()) {
+                    try {
+                        loginUrl += "&Email=" + java.net.URLEncoder.encode(hintEmail, "UTF-8");
+                    } catch (Exception ignored) {}
+                }
+                webView.loadUrl(loginUrl);
 
             } catch (Exception e) {
                 call.reject("Failed to open login dialog: " + e.getMessage());
@@ -604,15 +697,27 @@ public class YouTubeDownloaderPlugin extends Plugin {
     private String getFormattedCookies() {
         String ytCookies = CookieManager.getInstance().getCookie("https://www.youtube.com");
         String googleCookies = CookieManager.getInstance().getCookie("https://accounts.google.com");
+        SharedPreferences prefs = getContext().getSharedPreferences("vidtopdf_auth", Context.MODE_PRIVATE);
+        String prefYt = prefs.getString("yt_cookies", "");
+        String prefGoogle = prefs.getString("google_cookies", "");
+
         StringBuilder sb = new StringBuilder();
         if (ytCookies != null && !ytCookies.isEmpty()) {
             sb.append(ytCookies);
+        } else if (!prefYt.isEmpty()) {
+            sb.append(prefYt);
         }
+
         if (googleCookies != null && !googleCookies.isEmpty()) {
             if (sb.length() > 0) {
                 sb.append("; ");
             }
             sb.append(googleCookies);
+        } else if (!prefGoogle.isEmpty()) {
+            if (sb.length() > 0) {
+                sb.append("; ");
+            }
+            sb.append(prefGoogle);
         }
         return sb.toString();
     }

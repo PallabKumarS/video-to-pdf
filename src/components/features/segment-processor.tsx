@@ -68,6 +68,7 @@ export function SegmentProcessor({
 
   const isComponentMounted = useRef(true);
   useEffect(() => {
+    isComponentMounted.current = true;
     return () => {
       isComponentMounted.current = false;
     };
@@ -77,10 +78,15 @@ export function SegmentProcessor({
   useEffect(() => {
     const init = async () => {
       try {
+        console.log("[SegmentProcessor] Initializing video metadata...");
         const meta = await getVideoMetadata(video);
+        console.log("[SegmentProcessor] Video metadata loaded:", meta);
         if (!isComponentMounted.current) return;
         setMetadata(meta);
-        const total = Math.ceil(meta.duration / SEGMENT_DURATION_SECONDS);
+        const total = Math.max(
+          1,
+          Math.ceil(meta.duration / SEGMENT_DURATION_SECONDS),
+        );
         setTotalSegments(total);
 
         const initialStatus: Record<number, Status> = {};
@@ -90,6 +96,7 @@ export function SegmentProcessor({
         setStatusBySegment(initialStatus);
       } catch (err) {
         if (!isComponentMounted.current) return;
+        console.error("[SegmentProcessor] Failed to load metadata:", err);
         setError(err instanceof Error ? err.message : "Failed to load video");
       }
     };
@@ -104,12 +111,13 @@ export function SegmentProcessor({
     // Determine the next segment to extract
     // Priority: currentSegment if it's idle. Otherwise currentSegment + 1 if it's idle.
     let targetSegment = -1;
-    if (statusBySegment[currentSegment] === "idle") {
+    const currentStatus = statusBySegment[currentSegment] || "idle";
+    if (currentStatus === "idle") {
       targetSegment = currentSegment;
     } else if (
-      statusBySegment[currentSegment] === "done" &&
+      currentStatus === "done" &&
       currentSegment + 1 < totalSegments &&
-      statusBySegment[currentSegment + 1] === "idle"
+      (statusBySegment[currentSegment + 1] || "idle") === "idle"
     ) {
       targetSegment = currentSegment + 1;
     }
@@ -122,6 +130,10 @@ export function SegmentProcessor({
     if (isAnyExtracting) return;
 
     const runExtraction = async () => {
+      console.log(
+        "[SegmentProcessor] Starting extraction for segment:",
+        targetSegment,
+      );
       setStatusBySegment((prev) => ({
         ...prev,
         [targetSegment]: "extracting",
@@ -152,10 +164,15 @@ export function SegmentProcessor({
 
         if (!isComponentMounted.current) return;
 
+        console.log(
+          "[SegmentProcessor] Successfully extracted frames:",
+          frames.length,
+        );
         setFramesBySegment((prev) => ({ ...prev, [targetSegment]: frames }));
         setStatusBySegment((prev) => ({ ...prev, [targetSegment]: "done" }));
       } catch (err) {
         if (!isComponentMounted.current) return;
+        console.error("[SegmentProcessor] Extraction error:", err);
         setError(
           err instanceof Error ? err.message : "Failed to extract frames",
         );
@@ -202,7 +219,8 @@ export function SegmentProcessor({
 
   const isExtracting =
     statusBySegment[currentSegment] === "extracting" ||
-    statusBySegment[currentSegment] === "idle";
+    statusBySegment[currentSegment] === "idle" ||
+    statusBySegment[currentSegment] === undefined;
   const currentFrames = framesBySegment[currentSegment] || [];
   const progress = progressBySegment[currentSegment] || {
     current: 0,
