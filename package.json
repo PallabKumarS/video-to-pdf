@@ -1,6 +1,6 @@
 {
   "name": "video-to-pdf",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "author": "Pallab Kumar Sarker",
   "private": true,
   "main": "main.mjs",
@@ -48,11 +48,14 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
     "electron": "^42.4.0",
     "electron-builder": "^26.15.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
+  "description": "Convert Videos and YouTube Links to High-Quality PDFs locally",
   "build": {
     "appId": "com.video.topdf",
     "productName": "Video To PDF",
@@ -61,6 +64,13 @@
       "output": "dist",
       "buildResources": "public"
     },
+    "files": [
+      "out/**/*",
+      "main.mjs",
+      "preload.js",
+      "youtube-downloader.mjs",
+      "package.json"
+    ],
     "win": {
       "target": [
         "nsis"

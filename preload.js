@@ -1,4 +1,16 @@
-// Preload script for Electron
-window.addEventListener('DOMContentLoaded', () => {
-  // Can expose node APIs to the renderer process here if needed later.
+import { contextBridge, ipcRenderer } from "electron";
+
+contextBridge.exposeInMainWorld("electronAPI", {
+  isElectron: true,
+  checkCookies: () => ipcRenderer.invoke("youtube:check-cookies"),
+  saveCookies: (cookiesText) =>
+    ipcRenderer.invoke("youtube:save-cookies", cookiesText),
+  clearCookies: () => ipcRenderer.invoke("youtube:clear-cookies"),
+  downloadYoutube: (url) => ipcRenderer.invoke("youtube:download", url),
+  loginGoogle: () => ipcRenderer.invoke("youtube:google-login"),
+  onDownloadProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on("youtube:progress", handler);
+    return () => ipcRenderer.removeListener("youtube:progress", handler);
+  },
 });

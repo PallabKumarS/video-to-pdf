@@ -1,11 +1,47 @@
-name: Build Mobile Apps
+name: Build and Release Apps
 
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
+  build-windows:
+    name: Build Windows Desktop App
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Next.js Static App
+        run: npm run build
+
+      - name: Build Electron Windows App
+        run: npx electron-builder --win --x64
+
+      - name: Rename executable for release
+        run: |
+          Move-Item -Path "dist/Video To PDF Setup *.exe" -Destination "dist/video-to-pdf-win.exe" -Force
+        shell: pwsh
+
+      - name: Upload Windows Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-to-pdf-win
+          path: dist/video-to-pdf-win.exe
+
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
@@ -40,58 +76,66 @@ jobs:
           ./gradlew assembleDebug
         working-directory: android
 
-      - name: Upload Android APK
+      - name: Copy and rename APK
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/video-to-pdf.apk
+
+      - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: video-to-pdf-android-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: dist/video-to-pdf.apk
 
-  # build-ios:
-  #   name: Build iOS IPA (Unsigned)
-  #   runs-on: macos-latest
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
+  release:
+    name: Publish GitHub Release
+    needs: [build-windows, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  #     - name: Setup Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 24
-  #         cache: "npm"
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: video-to-pdf-win
+          path: release-assets
 
-  #     - name: Install dependencies
-  #       run: npm install
+      - name: Download Android Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: video-to-pdf-android-apk
+          path: release-assets
 
-  #     - name: Build Next.js App
-  #       run: npm run build
+      - name: Read Version from package.json
+        id: pkg_version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-  #     - name: Sync Capacitor iOS
-  #       run: npx cap sync ios
+      - name: Create or Update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.pkg_version.outputs.version }}"
+          name: "Video To PDF v${{ steps.pkg_version.outputs.version }}"
+          body: |
+            # Release v${{ steps.pkg_version.outputs.version }}: YouTube Link & Google Sign-In Support
 
-  #     - name: Build iOS App
-  #       run: |
-  #         xcodebuild \
-  #           -project App.xcodeproj \
-  #           -scheme App \
-  #           -configuration Release \
-  #           -sdk iphoneos \
-  #           -destination "generic/platform=iOS" \
-  #           CODE_SIGN_IDENTITY="" \
-  #           CODE_SIGNING_REQUIRED=NO \
-  #           CODE_SIGNING_ALLOWED=NO \
-  #           PROVISIONING_PROFILE_SPECIFIER="" \
-  #           CONFIGURATION_BUILD_DIR=build/Release-iphoneos \
-  #           build
-  #       working-directory: ios/App
+            ### New Features & Enhancements
+            * **YouTube Link Support:** Seamlessly process YouTube videos directly by pasting their link.
+            * **Local Processing & Privacy:** All video downloading and frame extraction execute locally on your machine with zero server storage.
+            * **Google Sign-In & Cookie Support:** Access age-restricted or private YouTube videos via an embedded Google login window or custom Netscape cookies.
+            * **Cross-Platform Compatibility:** Enhanced for both Windows desktop and Android mobile devices.
 
-  #     - name: Package to IPA (Unsigned)
-  #       run: |
-  #         mkdir Payload
-  #         mv ios/App/build/Release-iphoneos/App.app Payload/
-  #         zip -r video-to-pdf-ios.ipa Payload
+            ---
 
-  #     - name: Upload iOS IPA
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: video-to-pdf-ios-ipa
-  #         path: video-to-pdf-ios.ipa
+            **Downloads:**
+            * **Windows Desktop:** `video-to-pdf-win.exe`
+            * **Android Mobile:** `video-to-pdf.apk`
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/video-to-pdf-win.exe
+            release-assets/video-to-pdf.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

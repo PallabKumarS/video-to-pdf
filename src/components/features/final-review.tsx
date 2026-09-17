@@ -156,7 +156,7 @@ function SortableFrameItem({
 
 interface FinalReviewProps {
   initialFrames: ExtractedFrame[];
-  video: File;
+  video: File | string;
   metadata: VideoMetadata;
   onComplete: (finalFrames: ExtractedFrame[]) => void;
   onCancel: () => void;
@@ -286,7 +286,11 @@ export function FinalReview({
       </CardContent>
 
       <CardFooter className="flex-none flex-col sm:flex-row justify-between border-t border-border/50 bg-muted/20 p-4 sm:p-6 gap-4">
-        <Button variant="ghost" onClick={onCancel} className="w-full sm:w-auto order-last sm:order-first">
+        <Button
+          variant="ghost"
+          onClick={onCancel}
+          className="w-full sm:w-auto order-last sm:order-first"
+        >
           Cancel
         </Button>
         <div className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-3 sm:gap-4 sm:ml-auto">

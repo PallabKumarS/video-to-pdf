@@ -156,7 +156,9 @@ export function SubExtractionDialog({
                       step={0.1}
                       value={value}
                       // biome-ignore lint/suspicious/noExplicitAny: <Slider type issue>
-                      onValueChange={(val: any) => onChange(Array.isArray(val) ? val[0] : val)}
+                      onValueChange={(val: any) =>
+                        onChange(Array.isArray(val) ? val[0] : val)
+                      }
                       className="py-2"
                       disabled={isExtracting}
                     />

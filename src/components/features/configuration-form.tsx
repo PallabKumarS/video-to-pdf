@@ -12,33 +12,83 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { Upload, FileVideo, Settings2 } from "lucide-react";
-import { useState, useRef } from "react";
+import { Progress } from "@/components/ui/progress";
+import {
+  Upload,
+  FileVideo,
+  Settings2,
+  PlaySquare,
+  Link as LinkIcon,
+  Download,
+  Loader2,
+  Lock,
+  Key,
+} from "lucide-react";
+import { useState, useRef, useEffect } from "react";
 import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { AuthModal } from "./auth-modal";
 
 const configSchema = z.object({
-  video: z.instanceof(File, { message: "Please select a valid video file." }),
   interval: z.number().min(1).max(60),
 });
 
-export type ConfigInput = z.infer<typeof configSchema>;
+export type ConfigFormData = z.infer<typeof configSchema>;
+
+export interface ConfigInput {
+  video: File | string;
+  interval: number;
+}
 
 interface ConfigurationFormProps {
   onSubmit: (data: ConfigInput) => void;
 }
 
 export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
+  const [sourceType, setSourceType] = useState<"file" | "youtube">("file");
   const [dragActive, setDragActive] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [isDownloadingYt, setIsDownloadingYt] = useState(false);
+  const [ytProgress, setYtProgress] = useState<{
+    percent: number;
+    speed: string;
+    eta: string;
+  } | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [hasSavedCookies, setHasSavedCookies] = useState(false);
+
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const electronAPI =
+    typeof window !== "undefined" ? window.electronAPI : undefined;
+
+  useEffect(() => {
+    if (electronAPI?.checkCookies) {
+      electronAPI.checkCookies().then((res: { hasCookies: boolean }) => {
+        setHasSavedCookies(res?.hasCookies || false);
+      });
+    }
+  }, [electronAPI]);
+
+  useEffect(() => {
+    if (electronAPI?.onDownloadProgress) {
+      const unsub = electronAPI.onDownloadProgress(
+        (prog: { percent: number; speed: string; eta: string }) => {
+          setYtProgress(prog);
+        },
+      );
+      return () => unsub?.();
+    }
+  }, [electronAPI]);
 
   const {
     control,
     handleSubmit,
-    setValue,
-    watch,
     formState: { errors },
-  } = useForm<ConfigInput>({
+  } = useForm<ConfigFormData>({
     resolver: zodResolver(configSchema),
     defaultValues: {
       interval: 5,
@@ -64,7 +114,9 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
       if (file.type.startsWith("video/")) {
-        setValue("video", file, { shouldValidate: true });
+        setSelectedFile(file);
+      } else {
+        toast.error("Please drop a valid video file.");
       }
     }
   };
@@ -76,28 +128,109 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
     }
   };
 
-  const selectedFile = watch("video");
+  const onFormSubmit = async (values: ConfigFormData) => {
+    if (sourceType === "file") {
+      if (!selectedFile) {
+        toast.error("Please select a video file.");
+        return;
+      }
+      onSubmit({
+        video: selectedFile,
+        interval: values.interval,
+      });
+    } else {
+      if (!youtubeUrl.trim()) {
+        toast.error("Please enter a YouTube video URL.");
+        return;
+      }
+
+      if (!electronAPI?.downloadYoutube) {
+        toast.error(
+          "YouTube download is supported in the local desktop application.",
+        );
+        return;
+      }
+
+      setIsDownloadingYt(true);
+      setYtProgress({ percent: 0, speed: "Starting...", eta: "" });
+
+      try {
+        const res = await electronAPI.downloadYoutube(youtubeUrl.trim());
+        if (res?.success && res.data?.streamUrl) {
+          toast.success("YouTube video downloaded successfully!");
+          onSubmit({
+            video: res.data.streamUrl,
+            interval: values.interval,
+          });
+        } else {
+          const errorMsg = res?.error || "Download failed";
+          if (
+            errorMsg.includes("LOGIN_REQUIRED") ||
+            errorMsg.includes("Sign in") ||
+            errorMsg.includes("bot")
+          ) {
+            toast.error("This video requires a Google or YouTube login.");
+            setAuthModalOpen(true);
+          } else {
+            toast.error(errorMsg);
+          }
+        }
+      } catch (err) {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : "Failed to download YouTube video.",
+        );
+      } finally {
+        setIsDownloadingYt(false);
+        setYtProgress(null);
+      }
+    }
+  };
 
   return (
-    <Card className="w-full max-w-2xl mx-auto border-border/50 shadow-lg bg-card/50 backdrop-blur-sm">
-      <CardHeader className="text-center pb-8">
-        <CardTitle className="text-3xl font-bold tracking-tight">
-          Convert Video to PDF
-        </CardTitle>
-        <CardDescription className="text-muted-foreground mt-2">
-          Extract high-quality frames from your video and compile them into a
-          seamless PDF.
-        </CardDescription>
-      </CardHeader>
+    <>
+      <Card className="w-full max-w-2xl mx-auto border-border/50 shadow-lg bg-card/50 backdrop-blur-sm">
+        <CardHeader className="text-center pb-6">
+          <CardTitle className="text-3xl font-bold tracking-tight">
+            Convert Video to PDF
+          </CardTitle>
+          <CardDescription className="text-muted-foreground mt-2">
+            Extract high-quality frames from your video file or YouTube URL and
+            compile them into a seamless PDF.
+          </CardDescription>
 
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <CardContent className="space-y-8">
-          <div className="space-y-2">
-            <Controller
-              control={control}
-              name="video"
-              render={({ field: { onChange } }) => (
-                // biome-ignore lint/a11y/useSemanticElements: <>
+          <div className="flex justify-center mt-6">
+            <div className="inline-flex rounded-xl p-1 bg-muted/60 border border-border/40">
+              <Button
+                type="button"
+                variant={sourceType === "file" ? "default" : "ghost"}
+                size="sm"
+                className="rounded-lg text-sm font-semibold gap-2"
+                onClick={() => setSourceType("file")}
+              >
+                <Upload className="w-4 h-4" />
+                Upload File
+              </Button>
+              <Button
+                type="button"
+                variant={sourceType === "youtube" ? "default" : "ghost"}
+                size="sm"
+                className="rounded-lg text-sm font-semibold gap-2"
+                onClick={() => setSourceType("youtube")}
+              >
+                <PlaySquare className="w-4 h-4 text-red-500" />
+                YouTube Link
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+
+        <form onSubmit={handleSubmit(onFormSubmit)}>
+          <CardContent className="space-y-6">
+            {sourceType === "file" ? (
+              <div className="space-y-2">
+                {/* biome-ignore lint/a11y/useSemanticElements: <> */}
                 <div
                   role="button"
                   tabIndex={0}
@@ -119,7 +252,7 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
                     ref={inputRef}
                     onChange={(e) => {
                       if (e.target.files?.[0]) {
-                        onChange(e.target.files[0]);
+                        setSelectedFile(e.target.files[0]);
                       }
                     }}
                   />
@@ -144,9 +277,7 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
                         className="mt-2 text-muted-foreground hover:text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setValue("video", undefined as unknown as File, {
-                            shouldValidate: true,
-                          });
+                          setSelectedFile(null);
                         }}
                       >
                         Remove Video
@@ -169,64 +300,146 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
                     </div>
                   )}
                 </div>
-              )}
-            />
-            {errors.video && (
-              <p className="text-sm font-medium text-destructive text-center mt-2">
-                {errors.video.message}
-              </p>
-            )}
-          </div>
+              </div>
+            ) : (
+              <div className="space-y-4 bg-accent/20 p-6 rounded-xl border border-border/50">
+                <div className="flex items-center justify-between">
+                  <Label
+                    htmlFor="youtube-url"
+                    className="text-base font-semibold flex items-center gap-2"
+                  >
+                    <LinkIcon className="w-4 h-4 text-primary" />
+                    YouTube Video URL
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-8 gap-1.5"
+                    onClick={() => setAuthModalOpen(true)}
+                  >
+                    {hasSavedCookies ? (
+                      <>
+                        <Key className="w-3.5 h-3.5 text-emerald-500" />
+                        Account Connected
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5" />
+                        Google Login / Cookies
+                      </>
+                    )}
+                  </Button>
+                </div>
 
-          <div className="space-y-4 bg-accent/30 p-6 rounded-xl border border-border/50">
-            <Controller
-              control={control}
-              name="interval"
-              render={({ field: { value, onChange } }) => (
-                <>
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <Label className="flex items-center text-base font-semibold">
-                        <Settings2 className="w-4 h-4 mr-2" />
-                        Capture Interval
-                      </Label>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        How often should we extract a screenshot?
+                <Input
+                  id="youtube-url"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={youtubeUrl}
+                  onChange={(e) => setYoutubeUrl(e.target.value)}
+                  disabled={isDownloadingYt}
+                  className="h-11 text-sm bg-background/80"
+                />
+
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  The video will be downloaded locally via yt-dlp on your
+                  machine, then converted directly into frames.
+                </p>
+
+                {isDownloadingYt && ytProgress && (
+                  <div className="space-y-2 pt-2">
+                    <div className="flex justify-between text-xs font-medium text-muted-foreground">
+                      <span>Downloading video... ({ytProgress.speed})</span>
+                      <span className="text-primary font-semibold">
+                        {ytProgress.percent.toFixed(1)}%
+                      </span>
+                    </div>
+                    <Progress value={ytProgress.percent} className="h-2" />
+                    {ytProgress.eta && (
+                      <p className="text-[11px] text-muted-foreground text-right">
+                        ETA: {ytProgress.eta}
                       </p>
-                    </div>
-                    <div className="text-2xl font-bold text-primary">
-                      {value}s
-                    </div>
+                    )}
                   </div>
-                  <Slider
-                    min={1}
-                    max={60}
-                    step={1}
-                    value={value}
-                    // biome-ignore lint/suspicious/noExplicitAny: <>
-                    onValueChange={(val: any) => onChange(Array.isArray(val) ? val[0] : val)}
-                    className="py-4"
-                  />
-                  {errors.interval && (
-                    <p className="text-sm font-medium text-destructive mt-2">
-                      {errors.interval.message}
-                    </p>
-                  )}
+                )}
+              </div>
+            )}
+
+            <div className="space-y-4 bg-accent/30 p-6 rounded-xl border border-border/50">
+              <Controller
+                control={control}
+                name="interval"
+                render={({ field: { value, onChange } }) => (
+                  <>
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <Label className="flex items-center text-base font-semibold">
+                          <Settings2 className="w-4 h-4 mr-2" />
+                          Capture Interval
+                        </Label>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          How often should we extract a screenshot?
+                        </p>
+                      </div>
+                      <div className="text-2xl font-bold text-primary">
+                        {value}s
+                      </div>
+                    </div>
+                    <Slider
+                      min={1}
+                      max={60}
+                      step={1}
+                      value={value}
+                      // biome-ignore lint/suspicious/noExplicitAny: <>
+                      onValueChange={(val: any) =>
+                        onChange(Array.isArray(val) ? val[0] : val)
+                      }
+                      className="py-4"
+                      disabled={isDownloadingYt}
+                    />
+                    {errors.interval && (
+                      <p className="text-sm font-medium text-destructive mt-2">
+                        {errors.interval.message}
+                      </p>
+                    )}
+                  </>
+                )}
+              />
+            </div>
+          </CardContent>
+
+          <CardFooter className="pt-4 pb-8 px-6">
+            <Button
+              type="submit"
+              className="w-full h-12 text-lg font-medium rounded-xl shadow-lg hover:shadow-primary/25 transition-all"
+              disabled={
+                isDownloadingYt ||
+                (sourceType === "file" && !selectedFile) ||
+                (sourceType === "youtube" && !youtubeUrl.trim())
+              }
+            >
+              {isDownloadingYt ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Downloading YouTube Video...
+                </>
+              ) : (
+                <>
+                  <Download className="w-5 h-5 mr-2" />
+                  Start Processing
                 </>
               )}
-            />
-          </div>
-        </CardContent>
-        <CardFooter className="pt-4 pb-8 px-6">
-          <Button
-            type="submit"
-            className="w-full h-12 text-lg font-medium rounded-xl shadow-lg hover:shadow-primary/25 transition-all"
-            disabled={!selectedFile}
-          >
-            Start Processing
-          </Button>
-        </CardFooter>
-      </form>
-    </Card>
+            </Button>
+          </CardFooter>
+        </form>
+      </Card>
+
+      <AuthModal
+        open={authModalOpen}
+        onOpenChange={setAuthModalOpen}
+        hasCookies={hasSavedCookies}
+        onSuccess={() => setHasSavedCookies(true)}
+      />
+    </>
   );
 }

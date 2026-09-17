@@ -31,7 +31,7 @@ import Image from "next/image";
 const SEGMENT_DURATION_SECONDS = 10 * 60; // 5 minutes
 
 interface SegmentProcessorProps {
-  video: File;
+  video: File | string;
   interval: number;
   onComplete: (
     selectedFrames: ExtractedFrame[],

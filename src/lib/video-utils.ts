@@ -13,16 +13,25 @@ export interface ExtractedFrame {
 }
 
 /**
- * Loads a video file and retrieves its metadata.
- * Uses an object URL to load the file into an in-memory video element.
+ * Loads a video file or URL and retrieves its metadata.
+ * Uses an object URL or remote/local URL to load into an in-memory video element.
  */
-export async function getVideoMetadata(file: File): Promise<VideoMetadata> {
+export async function getVideoMetadata(
+  source: File | string,
+): Promise<VideoMetadata> {
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
     video.preload = "metadata";
+    video.crossOrigin = "anonymous";
+
+    const isBlobUrl = typeof source !== "string";
+    const videoUrl =
+      typeof source === "string" ? source : URL.createObjectURL(source);
 
     video.onloadedmetadata = () => {
-      URL.revokeObjectURL(video.src);
+      if (isBlobUrl) {
+        URL.revokeObjectURL(videoUrl);
+      }
       resolve({
         duration: video.duration,
         width: video.videoWidth,
@@ -32,11 +41,13 @@ export async function getVideoMetadata(file: File): Promise<VideoMetadata> {
     };
 
     video.onerror = () => {
-      URL.revokeObjectURL(video.src);
+      if (isBlobUrl) {
+        URL.revokeObjectURL(videoUrl);
+      }
       reject(new Error("Failed to load video metadata."));
     };
 
-    video.src = URL.createObjectURL(file);
+    video.src = videoUrl;
   });
 }
 
@@ -44,7 +55,7 @@ export async function getVideoMetadata(file: File): Promise<VideoMetadata> {
  * Extracts frames from a video between startTime and endTime at the specified interval.
  */
 export async function extractFrames(
-  file: File,
+  source: File | string,
   startTime: number,
   endTime: number,
   intervalSeconds: number,
@@ -56,12 +67,19 @@ export async function extractFrames(
     const ctx = canvas.getContext("2d");
     const frames: ExtractedFrame[] = [];
 
+    const isBlobUrl = typeof source !== "string";
+    const videoUrl =
+      typeof source === "string" ? source : URL.createObjectURL(source);
+
     // Initialize worker
     let worker: Worker | null = null;
     try {
       worker = new Worker(new URL("./frame-worker.ts", import.meta.url));
     } catch (e) {
-      console.warn("Web Workers not supported or failed to load. Falling back to main thread.", e);
+      console.warn(
+        "Web Workers not supported or failed to load. Falling back to main thread.",
+        e,
+      );
       if (!ctx) {
         reject(new Error("Failed to get canvas context and worker failed"));
         return;
@@ -75,7 +93,9 @@ export async function extractFrames(
     const checkCompletion = () => {
       if (isVideoFinished && pendingTasks.size === 0) {
         worker?.terminate();
-        URL.revokeObjectURL(video.src);
+        if (isBlobUrl) {
+          URL.revokeObjectURL(videoUrl);
+        }
         frames.sort((a, b) => a.time - b.time);
         resolve(frames);
       }
@@ -94,20 +114,23 @@ export async function extractFrames(
         } else {
           console.error("Worker error:", error);
         }
-        
+
         pendingTasks.delete(id);
-        
+
         if (onProgress) {
-          const total = Math.ceil((actualMaxTime - startTime) / intervalSeconds);
+          const total = Math.ceil(
+            (actualMaxTime - startTime) / intervalSeconds,
+          );
           // When using worker, progress tracks encoded frames
           onProgress(frames.length, total);
         }
-        
+
         checkCompletion();
       };
     }
 
     video.preload = "auto";
+    video.crossOrigin = "anonymous";
     video.muted = true;
     video.playsInline = true;
 
@@ -124,7 +147,9 @@ export async function extractFrames(
 
     video.onerror = () => {
       worker?.terminate();
-      URL.revokeObjectURL(video.src);
+      if (isBlobUrl) {
+        URL.revokeObjectURL(videoUrl);
+      }
       reject(new Error("Error loading video for frame extraction."));
     };
 
@@ -154,15 +179,17 @@ export async function extractFrames(
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
         frames.push({ id, time: frameTime, dataUrl, selected: true });
-        
+
         if (onProgress) {
-          const total = Math.ceil((actualMaxTime - startTime) / intervalSeconds);
+          const total = Math.ceil(
+            (actualMaxTime - startTime) / intervalSeconds,
+          );
           onProgress(frames.length, total);
         }
       }
 
       currentTime += intervalSeconds;
-      
+
       if (currentTime > actualMaxTime) {
         isVideoFinished = true;
         checkCompletion();
@@ -173,6 +200,6 @@ export async function extractFrames(
       }
     };
 
-    video.src = URL.createObjectURL(file);
+    video.src = videoUrl;
   });
 }
