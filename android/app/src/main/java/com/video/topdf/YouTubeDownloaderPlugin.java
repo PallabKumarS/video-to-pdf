@@ -97,7 +97,7 @@ public class YouTubeDownloaderPlugin extends Plugin {
                 });
 
                 authDialog.show();
-                webView.loadURL("https://accounts.google.com/ServiceLogin?service=youtube");
+                webView.loadUrl("https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue");
 
             } catch (Exception e) {
                 call.reject("Failed to open login dialog: " + e.getMessage());
