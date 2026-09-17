@@ -67,7 +67,18 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
     typeof window !== "undefined" ? window.electronAPI : undefined;
 
   useEffect(() => {
-    if (electronAPI?.checkCookies) {
+    if (Capacitor.isNativePlatform()) {
+      interface NativeAuthPlugin {
+        checkCookies: () => Promise<{ hasCookies: boolean }>;
+      }
+      const NativeDownloader =
+        registerPlugin<NativeAuthPlugin>("YouTubeDownloader");
+      NativeDownloader.checkCookies()
+        .then((res) => {
+          setHasSavedCookies(res?.hasCookies || false);
+        })
+        .catch(() => {});
+    } else if (electronAPI?.checkCookies) {
       electronAPI.checkCookies().then((res: { hasCookies: boolean }) => {
         setHasSavedCookies(res?.hasCookies || false);
       });
@@ -88,6 +99,7 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
   const {
     control,
     handleSubmit,
+    getValues,
     formState: { errors },
   } = useForm<ConfigFormData>({
     resolver: zodResolver(configSchema),
@@ -487,7 +499,13 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
         open={authModalOpen}
         onOpenChange={setAuthModalOpen}
         hasCookies={hasSavedCookies}
-        onSuccess={() => setHasSavedCookies(true)}
+        onSuccess={() => {
+          setHasSavedCookies(true);
+          if (youtubeUrl.trim()) {
+            toast.info("Account authenticated! Starting download...");
+            onFormSubmit(getValues());
+          }
+        }}
       />
     </>
   );

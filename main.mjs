@@ -72,18 +72,25 @@ function setupIpcHandlers() {
   ipcMain.handle("youtube:google-login", async () => {
     return new Promise((resolve) => {
       const authWindow = new BrowserWindow({
-        width: 600,
-        height: 700,
+        width: 650,
+        height: 750,
         parent: mainWindow || undefined,
         modal: true,
+        autoHideMenuBar: true,
+        title: "Sign in with Google",
         webPreferences: {
           nodeIntegration: false,
           contextIsolation: true,
+          partition: "persist:youtube_auth",
         },
       });
 
       authWindow.loadURL(
-        "https://accounts.google.com/ServiceLogin?service=youtube",
+        "https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue",
+        {
+          userAgent:
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        },
       );
 
       let resolved = false;
@@ -92,10 +99,11 @@ function setupIpcHandlers() {
         if (resolved) return;
         resolved = true;
         try {
-          const cookies = await session.defaultSession.cookies.get({
+          const authSession = session.fromPartition("persist:youtube_auth");
+          const cookies = await authSession.cookies.get({
             domain: ".youtube.com",
           });
-          const googleCookies = await session.defaultSession.cookies.get({
+          const googleCookies = await authSession.cookies.get({
             domain: ".google.com",
           });
           const allCookies = [...cookies, ...googleCookies];

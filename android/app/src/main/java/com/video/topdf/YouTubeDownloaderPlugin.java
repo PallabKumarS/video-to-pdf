@@ -1,6 +1,14 @@
 package com.video.topdf;
 
+import android.app.Dialog;
+import android.content.DialogInterface;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -20,6 +28,82 @@ import org.json.JSONObject;
 
 @CapacitorPlugin(name = "YouTubeDownloader")
 public class YouTubeDownloaderPlugin extends Plugin {
+
+    @PluginMethod
+    public void checkCookies(PluginCall call) {
+        String cookies = CookieManager.getInstance().getCookie(".youtube.com");
+        boolean hasCookies = cookies != null && cookies.contains("LOGIN_INFO");
+        JSObject ret = new JSObject();
+        ret.put("hasCookies", hasCookies);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void clearCookies(PluginCall call) {
+        CookieManager.getInstance().removeAllCookies(value -> {
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        });
+    }
+
+    @PluginMethod
+    public void loginGoogle(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                Dialog authDialog = new Dialog(getActivity(), android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen);
+                WebView webView = new WebView(getActivity());
+                
+                WebSettings settings = webView.getSettings();
+                settings.setJavaScriptEnabled(true);
+                settings.setDomStorageEnabled(true);
+                settings.setDatabaseEnabled(true);
+                settings.setUserAgentString("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36");
+                
+                CookieManager.getInstance().setAcceptCookie(true);
+                CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+
+                webView.setWebViewClient(new WebViewClient() {
+                    private boolean resolved = false;
+
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        super.onPageFinished(view, url);
+                        if (url != null && url.contains("youtube.com") && !url.contains("accounts.google.com") && !resolved) {
+                            resolved = true;
+                            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                                if (authDialog.isShowing()) {
+                                    authDialog.dismiss();
+                                }
+                                JSObject ret = new JSObject();
+                                ret.put("success", true);
+                                call.resolve(ret);
+                            }, 1200);
+                        }
+                    }
+                });
+
+                authDialog.setContentView(webView, new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                ));
+
+                authDialog.setOnCancelListener(dialogInterface -> {
+                    String cookies = CookieManager.getInstance().getCookie(".youtube.com");
+                    boolean hasCookies = cookies != null && !cookies.isEmpty();
+                    JSObject ret = new JSObject();
+                    ret.put("success", hasCookies);
+                    call.resolve(ret);
+                });
+
+                authDialog.show();
+                webView.loadURL("https://accounts.google.com/ServiceLogin?service=youtube");
+
+            } catch (Exception e) {
+                call.reject("Failed to open login dialog: " + e.getMessage());
+            }
+        });
+    }
 
     @PluginMethod
     public void downloadVideo(PluginCall call) {

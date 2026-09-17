@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { LogIn, Key, Loader2, CheckCircle2, Trash2 } from "lucide-react";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 
 interface AuthModalProps {
   open: boolean;
@@ -35,24 +36,45 @@ export function AuthModal({
     typeof window !== "undefined" ? window.electronAPI : undefined;
 
   const handleGoogleLogin = async () => {
-    if (!electronAPI) {
-      toast.error("Desktop app connection is not active.");
-      return;
-    }
-
     setIsLoggingIn(true);
     try {
-      toast.info(
-        "Opening Google login window... Please sign in to your YouTube account.",
-      );
-      const res = await electronAPI.loginGoogle();
-      if (res?.success) {
-        setSavedCookies(true);
-        toast.success("Google Account authenticated successfully!");
-        onOpenChange(false);
-        onSuccess?.();
+      if (Capacitor.isNativePlatform()) {
+        interface NativeAuthPlugin {
+          loginGoogle: () => Promise<{ success: boolean; error?: string }>;
+        }
+        const NativeDownloader =
+          registerPlugin<NativeAuthPlugin>("YouTubeDownloader");
+        toast.info("Opening Google Account login dialog...");
+        const res = await NativeDownloader.loginGoogle();
+        if (res?.success) {
+          setSavedCookies(true);
+          toast.success("Google Account authenticated successfully!");
+          onOpenChange(false);
+          onSuccess?.();
+        } else {
+          toast.error(
+            res?.error || "Google login was canceled or not completed.",
+          );
+        }
+      } else if (electronAPI) {
+        toast.info(
+          "Opening Google login window... Please choose or sign in to your YouTube account.",
+        );
+        const res = await electronAPI.loginGoogle();
+        if (res?.success) {
+          setSavedCookies(true);
+          toast.success("Google Account authenticated successfully!");
+          onOpenChange(false);
+          onSuccess?.();
+        } else {
+          toast.error(
+            res?.error || "Google login was closed or not completed.",
+          );
+        }
       } else {
-        toast.error(res?.error || "Google login was closed or not completed.");
+        toast.error(
+          "Please run inside the Desktop or Android app to use Google Sign-In.",
+        );
       }
     } catch (err) {
       toast.error(
@@ -70,7 +92,7 @@ export function AuthModal({
     }
 
     if (!electronAPI) {
-      toast.error("Desktop app connection is not active.");
+      toast.error("Manual cookies are supported in the Desktop app.");
       return;
     }
 
@@ -91,11 +113,21 @@ export function AuthModal({
   };
 
   const handleClearCookies = async () => {
-    if (!electronAPI) return;
     try {
-      await electronAPI.clearCookies();
-      setSavedCookies(false);
-      toast.success("Authentication cookies cleared.");
+      if (Capacitor.isNativePlatform()) {
+        interface NativeAuthPlugin {
+          clearCookies: () => Promise<{ success: boolean }>;
+        }
+        const NativeDownloader =
+          registerPlugin<NativeAuthPlugin>("YouTubeDownloader");
+        await NativeDownloader.clearCookies();
+        setSavedCookies(false);
+        toast.success("Authentication cookies cleared.");
+      } else if (electronAPI) {
+        await electronAPI.clearCookies();
+        setSavedCookies(false);
+        toast.success("Authentication cookies cleared.");
+      }
     } catch {
       toast.error("Failed to clear cookies.");
     }
