@@ -122,6 +122,9 @@ jobs:
             gh release create "$TAG" --title "$TITLE" --notes "Release $TAG"
           fi
           
+          gh release delete-asset "$TAG" video-to-pdf-win.exe --yes 2>/dev/null || true
+          gh release delete-asset "$TAG" video-to-pdf.apk --yes 2>/dev/null || true
+
           gh release upload "$TAG" release-assets/video-to-pdf-win.exe release-assets/video-to-pdf.apk --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -29,37 +29,61 @@ export async function extractFrames(
   try {
     const video = document.createElement("video");
     video.preload = "auto";
-    video.crossOrigin = "anonymous";
+    if (
+      typeof source === "string" &&
+      (source.startsWith("http://") || source.startsWith("https://")) &&
+      !source.includes("localhost") &&
+      !source.includes("127.0.0.1")
+    ) {
+      video.crossOrigin = "anonymous";
+    }
     video.muted = true;
     video.playsInline = true;
 
     await new Promise<void>((resolve, reject) => {
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      let settled = false;
+
       const onLoaded = () => {
+        if (settled) return;
+        settled = true;
         if (timeoutId) clearTimeout(timeoutId);
         video.removeEventListener("loadeddata", onLoaded);
+        video.removeEventListener("loadedmetadata", onLoaded);
         video.removeEventListener("error", onError);
         resolve();
       };
       const onError = () => {
+        if (settled) return;
+        settled = true;
         if (timeoutId) clearTimeout(timeoutId);
         video.removeEventListener("loadeddata", onLoaded);
+        video.removeEventListener("loadedmetadata", onLoaded);
         video.removeEventListener("error", onError);
-        reject(new Error("Failed to load video for frame extraction"));
+        const code = video.error ? video.error.code : "unknown";
+        const msg = video.error ? video.error.message : "Video playback error";
+        reject(new Error(`Failed to load video for frame extraction (Code ${code}: ${msg})`));
       };
 
       video.addEventListener("loadeddata", onLoaded);
+      video.addEventListener("loadedmetadata", onLoaded);
       video.addEventListener("error", onError);
 
-      // Fallback timeout in case loadeddata was missed or delayed
       timeoutId = setTimeout(() => {
+        if (settled) return;
         if (video.readyState >= 1) {
           onLoaded();
+        } else {
+          settled = true;
+          video.removeEventListener("loadeddata", onLoaded);
+          video.removeEventListener("loadedmetadata", onLoaded);
+          video.removeEventListener("error", onError);
+          reject(new Error("Timed out loading video for frame extraction"));
         }
-      }, 3000);
+      }, 10000);
 
       video.src = videoUrl;
-      if (video.readyState >= 2) {
+      if (video.readyState >= 1) {
         onLoaded();
       } else {
         video.load();

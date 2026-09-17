@@ -3,7 +3,7 @@
  * via the native YouTubeDownloader plugin.
  */
 
-import { registerPlugin } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import type { DownloadResult } from "./download-web";
 
 interface NativeProgress {
@@ -43,11 +43,14 @@ export async function downloadYoutubeOnAndroid(
 
   try {
     const res = await NativeDownloader.downloadVideo({ url });
-    if (!res || !res.streamUrl) {
+    if (!res || (!res.streamUrl && !res.filePath)) {
       throw new Error("Could not retrieve video stream on Android");
     }
+    const safeStreamUrl = res.filePath
+      ? Capacitor.convertFileSrc(res.filePath)
+      : res.streamUrl;
     return {
-      streamUrl: res.streamUrl,
+      streamUrl: safeStreamUrl,
       title: res.title || "YouTube Video",
       filePath: res.filePath,
     };

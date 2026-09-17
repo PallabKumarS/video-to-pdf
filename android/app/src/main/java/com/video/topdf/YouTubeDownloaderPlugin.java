@@ -17,6 +17,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.accounts.AccountManager;
 import android.content.Intent;
+import android.net.Uri;
 import androidx.activity.result.ActivityResult;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.JSObject;
@@ -107,176 +108,30 @@ public class YouTubeDownloaderPlugin extends Plugin {
 
     @PluginMethod
     public void loginGoogle(PluginCall call) {
+        openBrowserLogin(call);
+    }
+
+    @PluginMethod
+    public void openBrowserLogin(PluginCall call) {
         try {
-            Intent intent = AccountManager.newChooseAccountIntent(
-                    null,
-                    null,
-                    new String[]{"com.google"},
-                    null,
-                    null,
-                    null,
-                    null
-            );
-            startActivityForResult(call, intent, "handleAccountPickerResult");
+            String url = "https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fwww.youtube.com";
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+
+            SharedPreferences prefs = getContext().getSharedPreferences("vidtopdf_auth", Context.MODE_PRIVATE);
+            prefs.edit()
+                 .putString("account_name", "Google Account (Browser)")
+                 .putBoolean("has_auth", true)
+                 .apply();
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("accountName", "Google Account (Browser)");
+            call.resolve(ret);
         } catch (Exception e) {
-            openWebLoginDialog(call, null);
+            call.reject("Could not open browser: " + e.getMessage());
         }
-    }
-
-    @ActivityCallback
-    private void handleAccountPickerResult(PluginCall call, ActivityResult result) {
-        String accountName = null;
-        if (result.getResultCode() == android.app.Activity.RESULT_OK && result.getData() != null) {
-            accountName = result.getData().getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
-            if (accountName != null && !accountName.isEmpty()) {
-                SharedPreferences prefs = getContext().getSharedPreferences("vidtopdf_auth", Context.MODE_PRIVATE);
-                prefs.edit().putString("account_name", accountName).apply();
-            }
-        }
-        openWebLoginDialog(call, accountName);
-    }
-
-    private void openWebLoginDialog(PluginCall call, String hintEmail) {
-        getActivity().runOnUiThread(() -> {
-            try {
-                Context context = getActivity();
-                Dialog authDialog = new Dialog(context, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen);
-
-                LinearLayout rootLayout = new LinearLayout(context);
-                rootLayout.setOrientation(LinearLayout.VERTICAL);
-                rootLayout.setLayoutParams(new ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                ));
-
-                // Top Toolbar
-                LinearLayout toolbar = new LinearLayout(context);
-                toolbar.setOrientation(LinearLayout.HORIZONTAL);
-                toolbar.setBackgroundColor(Color.parseColor("#1f2937"));
-                int toolbarHeight = (int) TypedValue.applyDimension(
-                        TypedValue.COMPLEX_UNIT_DIP, 52, context.getResources().getDisplayMetrics());
-                toolbar.setLayoutParams(new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, toolbarHeight));
-                toolbar.setGravity(Gravity.CENTER_VERTICAL);
-                toolbar.setPadding(20, 0, 20, 0);
-
-                Button cancelButton = new Button(context);
-                cancelButton.setText("Cancel");
-                cancelButton.setTextColor(Color.parseColor("#9ca3af"));
-                cancelButton.setBackgroundColor(Color.TRANSPARENT);
-
-                TextView titleView = new TextView(context);
-                titleView.setText("Sign in with Google");
-                titleView.setTextColor(Color.WHITE);
-                titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-                titleView.setGravity(Gravity.CENTER);
-                LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
-                titleView.setLayoutParams(titleParams);
-
-                Button doneButton = new Button(context);
-                doneButton.setText("Done");
-                doneButton.setTextColor(Color.parseColor("#38bdf8"));
-                doneButton.setBackgroundColor(Color.TRANSPARENT);
-
-                toolbar.addView(cancelButton);
-                toolbar.addView(titleView);
-                toolbar.addView(doneButton);
-
-                // WebView
-                WebView webView = new WebView(context);
-                LinearLayout.LayoutParams webViewParams = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f);
-                webView.setLayoutParams(webViewParams);
-
-                WebSettings settings = webView.getSettings();
-                settings.setJavaScriptEnabled(true);
-                settings.setDomStorageEnabled(true);
-                settings.setDatabaseEnabled(true);
-                settings.setUserAgentString("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36");
-
-                CookieManager cookieManager = CookieManager.getInstance();
-                cookieManager.setAcceptCookie(true);
-                cookieManager.setAcceptThirdPartyCookies(webView, true);
-
-                final boolean[] isResolved = {false};
-
-                Runnable finishAuth = () -> {
-                    if (isResolved[0]) return;
-                    isResolved[0] = true;
-                    cookieManager.flush();
-                    if (authDialog.isShowing()) {
-                        authDialog.dismiss();
-                    }
-                    String ytCookies = cookieManager.getCookie("https://www.youtube.com");
-                    String googleCookies = cookieManager.getCookie("https://accounts.google.com");
-                    boolean success = (ytCookies != null && !ytCookies.isEmpty()) || (googleCookies != null && !googleCookies.isEmpty());
-
-                    if (success) {
-                        SharedPreferences prefs = getContext().getSharedPreferences("vidtopdf_auth", Context.MODE_PRIVATE);
-                        SharedPreferences.Editor editor = prefs.edit()
-                             .putString("yt_cookies", ytCookies)
-                             .putString("google_cookies", googleCookies)
-                             .putBoolean("has_auth", true);
-                        if (hintEmail != null && !hintEmail.isEmpty()) {
-                            editor.putString("account_name", hintEmail);
-                        }
-                        editor.apply();
-                    }
-
-                    JSObject ret = new JSObject();
-                    ret.put("success", success);
-                    if (hintEmail != null && !hintEmail.isEmpty()) {
-                        ret.put("accountName", hintEmail);
-                    }
-                    call.resolve(ret);
-                };
-
-                cancelButton.setOnClickListener(v -> {
-                    if (!isResolved[0]) {
-                        isResolved[0] = true;
-                        cookieManager.flush();
-                        authDialog.dismiss();
-                        String ytCookies = cookieManager.getCookie("https://www.youtube.com");
-                        boolean success = ytCookies != null && !ytCookies.isEmpty();
-                        JSObject ret = new JSObject();
-                        ret.put("success", success);
-                        call.resolve(ret);
-                    }
-                });
-
-                doneButton.setOnClickListener(v -> finishAuth.run());
-
-                webView.setWebViewClient(new WebViewClient() {
-                    @Override
-                    public void onPageFinished(WebView view, String url) {
-                        super.onPageFinished(view, url);
-                        cookieManager.flush();
-                        if (url != null && url.contains("youtube.com") && !url.contains("accounts.google.com") && !isResolved[0]) {
-                            new Handler(Looper.getMainLooper()).postDelayed(finishAuth, 1200);
-                        }
-                    }
-                });
-
-                rootLayout.addView(toolbar);
-                rootLayout.addView(webView);
-
-                authDialog.setContentView(rootLayout);
-                authDialog.setOnCancelListener(dialogInterface -> finishAuth.run());
-
-                authDialog.show();
-                String loginUrl = "https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue";
-                if (hintEmail != null && !hintEmail.isEmpty()) {
-                    try {
-                        loginUrl += "&Email=" + java.net.URLEncoder.encode(hintEmail, "UTF-8");
-                    } catch (Exception ignored) {}
-                }
-                webView.loadUrl(loginUrl);
-
-            } catch (Exception e) {
-                call.reject("Failed to open login dialog: " + e.getMessage());
-            }
-        });
     }
 
     @PluginMethod
@@ -465,6 +320,14 @@ public class YouTubeDownloaderPlugin extends Plugin {
         try {
             if (streamingData.has("formats")) {
                 JSONArray formats = streamingData.getJSONArray("formats");
+                // 1. Prefer progressive MP4 with H.264 (avc1)
+                for (int i = 0; i < formats.length(); i++) {
+                    JSONObject fmt = formats.getJSONObject(i);
+                    String mime = fmt.optString("mimeType", "");
+                    if (fmt.has("url") && mime.contains("video/mp4") && mime.contains("avc1")) {
+                        return fmt.getString("url");
+                    }
+                }
                 for (int i = 0; i < formats.length(); i++) {
                     JSONObject fmt = formats.getJSONObject(i);
                     if (fmt.has("url") && fmt.optString("mimeType", "").contains("video/mp4")) {
@@ -481,13 +344,22 @@ public class YouTubeDownloaderPlugin extends Plugin {
 
             if (streamingData.has("adaptiveFormats")) {
                 JSONArray adaptive = streamingData.getJSONArray("adaptiveFormats");
+                // Prefer H.264 (avc1) in adaptive formats
                 for (int i = 0; i < adaptive.length(); i++) {
                     JSONObject fmt = adaptive.getJSONObject(i);
-                    if (fmt.has("url") && fmt.optString("mimeType", "").contains("video/mp4")) {
+                    String mime = fmt.optString("mimeType", "");
+                    if (fmt.has("url") && mime.contains("video/mp4") && mime.contains("avc1")) {
                         String quality = fmt.optString("qualityLabel", "");
                         if (quality.contains("720") || quality.contains("1080")) {
                             return fmt.getString("url");
                         }
+                    }
+                }
+                for (int i = 0; i < adaptive.length(); i++) {
+                    JSONObject fmt = adaptive.getJSONObject(i);
+                    String mime = fmt.optString("mimeType", "");
+                    if (fmt.has("url") && mime.contains("video/mp4") && mime.contains("avc1")) {
+                        return fmt.getString("url");
                     }
                 }
                 for (int i = 0; i < adaptive.length(); i++) {
@@ -719,6 +591,13 @@ public class YouTubeDownloaderPlugin extends Plugin {
             }
             sb.append(prefGoogle);
         }
-        return sb.toString();
+
+        String result = sb.toString();
+        // Crucial: Only return cookies if genuine auth credentials exist.
+        // Sending anonymous visitor cookies (like GPS or VISITOR_INFO) causes YouTube to trigger bot-detection blocks.
+        if (!result.contains("SAPISID") && !result.contains("SSID") && !result.contains("SID") && !result.contains("LOGIN_INFO")) {
+            return "";
+        }
+        return result;
     }
 }

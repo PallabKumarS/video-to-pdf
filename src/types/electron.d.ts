@@ -17,9 +17,11 @@ export interface ElectronAPI {
   }>;
   loginGoogle: () => Promise<{
     success: boolean;
+    openedBrowser?: boolean;
     count?: number;
     error?: string;
   }>;
+  openBrowser: (url?: string) => Promise<{ success: boolean; error?: string }>;
   onDownloadProgress: (
     callback: (progress: {
       percent: number;

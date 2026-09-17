@@ -16,7 +16,15 @@ export async function getVideoMetadata(
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
     video.preload = "metadata";
-    video.crossOrigin = "anonymous";
+    // Only set crossOrigin for remote HTTP(S) domains; setting it on blob, capacitor, or localhost breaks playback
+    if (
+      typeof source === "string" &&
+      (source.startsWith("http://") || source.startsWith("https://")) &&
+      !source.includes("localhost") &&
+      !source.includes("127.0.0.1")
+    ) {
+      video.crossOrigin = "anonymous";
+    }
     video.muted = true;
     video.playsInline = true;
 
@@ -31,7 +39,11 @@ export async function getVideoMetadata(
     };
 
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let resolved = false;
+
     const finish = () => {
+      if (resolved) return;
+      resolved = true;
       if (timer) clearTimeout(timer);
       const meta: VideoMetadata = {
         duration: video.duration || 0,
@@ -45,21 +57,28 @@ export async function getVideoMetadata(
 
     video.onloadedmetadata = finish;
     video.onloadeddata = finish;
+    video.oncanplay = finish;
 
     video.onerror = () => {
+      if (resolved) return;
+      resolved = true;
       if (timer) clearTimeout(timer);
       cleanup();
-      reject(new Error("Failed to load video metadata"));
+      const code = video.error ? video.error.code : "unknown";
+      const msg = video.error ? video.error.message : "Failed to load video";
+      reject(new Error(`Failed to load video metadata (Code ${code}: ${msg})`));
     };
 
     timer = setTimeout(() => {
+      if (resolved) return;
       if (video.readyState >= 1 || video.duration > 0) {
         finish();
       } else {
+        resolved = true;
         cleanup();
-        reject(new Error("Timed out loading video metadata"));
+        reject(new Error("Timed out loading video metadata (15s limit reached)"));
       }
-    }, 5000);
+    }, 15000);
 
     video.src = videoUrl;
     if (video.readyState >= 1) {

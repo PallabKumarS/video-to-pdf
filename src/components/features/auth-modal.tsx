@@ -41,44 +41,43 @@ export function AuthModal({
     try {
       if (Capacitor.isNativePlatform()) {
         interface NativeAuthPlugin {
-          loginGoogle: () => Promise<{ success: boolean; error?: string }>;
+          loginGoogle: () => Promise<{ success: boolean; error?: string; accountName?: string }>;
         }
         const NativeDownloader =
           registerPlugin<NativeAuthPlugin>("YouTubeDownloader");
-        toast.info("Opening Google Account login dialog...");
+        toast.info("Opening Google Account chooser in default browser...");
         const res = await NativeDownloader.loginGoogle();
         if (res?.success) {
           setSavedCookies(true);
           setAccountConnected(true);
-          toast.success("Google Account authenticated successfully!");
+          toast.success("Google Account connected via default browser!");
           onOpenChange(false);
           onSuccess?.();
         } else {
           toast.error(
-            res?.error || "Google login was canceled or not completed.",
+            res?.error || "Could not open Google Account chooser.",
           );
         }
       } else if (electronAPI) {
         toast.info(
-          "Opening Google login window... Please choose or sign in to your YouTube account.",
+          "Opening Google Account chooser in default browser...",
         );
         const res = await electronAPI.loginGoogle();
         if (res?.success) {
           setSavedCookies(true);
           setAccountConnected(true);
-          toast.success("Google Account authenticated successfully!");
+          toast.success("Google Account connected via default browser!");
           onOpenChange(false);
           onSuccess?.();
         } else {
           toast.error(
-            res?.error || "Google login was closed or not completed.",
+            res?.error || "Could not open Google Account chooser.",
           );
         }
       } else {
         window.open(
           "https://accounts.google.com/AccountChooser?service=youtube&continue=https%3A%2F%2Fwww.youtube.com",
           "_blank",
-          "width=600,height=700",
         );
         setSavedCookies(true);
         setAccountConnected(true);
@@ -219,14 +218,10 @@ export function AuthModal({
         {activeTab === "google" ? (
           <div className="space-y-4 py-3 text-sm text-muted-foreground">
             <p className="leading-relaxed">
-              Click below to open a local Google login window. Once you sign in
-              and redirect to YouTube, the session cookies will be captured
-              locally for video fetching.
+              Sign in easily using your existing Google account. Clicking below opens Google&apos;s native Account Chooser in your default browser where your accounts are already signed in.
             </p>
             <div className="p-3 bg-muted/40 rounded-lg text-xs leading-relaxed border border-border/30">
-              <strong>Local & Secure:</strong> Credentials and cookies are
-              stored only on your computer in your local temporary directory and
-              never sent to external servers.
+              <strong>Guest Mode Supported:</strong> Public videos download directly at maximum speed without requiring any login. Linking your browser session enables access to personalized or restricted content.
             </div>
             <Button
               type="button"
@@ -237,12 +232,12 @@ export function AuthModal({
               {isLoggingIn ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Authenticating...
+                  Opening Browser...
                 </>
               ) : (
                 <>
                   <LogIn className="w-4 h-4 mr-2" />
-                  Sign In with Google
+                  {savedCookies ? "Switch Google Account (Browser)" : "Sign In with Google (Browser)"}
                 </>
               )}
             </Button>

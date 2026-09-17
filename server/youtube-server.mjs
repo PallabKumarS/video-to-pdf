@@ -49,6 +49,16 @@ function extractVideoId(url) {
   return match ? match[1] : null;
 }
 
+function isValidAuthCookieFile(filePath) {
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) return false;
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    return /(SAPISID|SSID|HSID|SID|LOGIN_INFO|__Secure-[13]PSID)/i.test(content);
+  } catch {
+    return false;
+  }
+}
+
 function downloadWithYtDlp(url) {
   return new Promise((resolve, reject) => {
     const videoId = extractVideoId(url) || Date.now().toString(36);
@@ -68,7 +78,9 @@ function downloadWithYtDlp(url) {
 
     const args = [
       "-f",
-      "bestvideo[height<=720][ext=mp4]/best[height<=720]/best",
+      "bestvideo[height<=720][vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720][vcodec^=avc1]+bestaudio/best[height<=720][vcodec^=avc1]/best[height<=720][ext=mp4]/best[height<=720]/best",
+      "--merge-output-format",
+      "mp4",
       "--no-playlist",
       "--force-overwrites",
       "--no-check-certificates",
@@ -79,7 +91,7 @@ function downloadWithYtDlp(url) {
       outputPath,
     ];
 
-    if (fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0) {
+    if (isValidAuthCookieFile(COOKIES_FILE)) {
       args.push("--cookies", COOKIES_FILE);
     }
 
@@ -179,8 +191,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/youtube/check-cookies" && req.method === "GET") {
-      const hasCookies =
-        fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0;
+      const hasCookies = isValidAuthCookieFile(COOKIES_FILE);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ hasCookies }));
       return;

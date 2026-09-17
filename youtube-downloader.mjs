@@ -19,9 +19,20 @@ export function getCookiesFilePath() {
   return path.join(baseDir, "vidtopdf_yt_cookies.txt");
 }
 
+export function isValidAuthCookieFile(filePath) {
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) return false;
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    // Ensure the cookies file contains actual user session credentials
+    return /(SAPISID|SSID|HSID|SID|LOGIN_INFO|__Secure-[13]PSID)/i.test(content);
+  } catch {
+    return false;
+  }
+}
+
 export function hasSavedCookies() {
   const cookiePath = getCookiesFilePath();
-  return fs.existsSync(cookiePath) && fs.statSync(cookiePath).size > 0;
+  return isValidAuthCookieFile(cookiePath);
 }
 
 export function saveCookiesFile(content) {
@@ -126,7 +137,9 @@ export function downloadYoutubeVideo(url, onProgress) {
 
     const args = [
       "-f",
-      "bestvideo[height<=720][ext=mp4]/best[height<=720]/best",
+      "bestvideo[height<=720][vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720][vcodec^=avc1]+bestaudio/best[height<=720][vcodec^=avc1]/best[height<=720][ext=mp4]/best[height<=720]/best",
+      "--merge-output-format",
+      "mp4",
       "--no-playlist",
       "--force-overwrites",
       "--no-check-certificates",
@@ -138,7 +151,7 @@ export function downloadYoutubeVideo(url, onProgress) {
     ];
 
     const cookiesPath = getCookiesFilePath();
-    if (fs.existsSync(cookiesPath) && fs.statSync(cookiesPath).size > 0) {
+    if (isValidAuthCookieFile(cookiesPath)) {
       args.push("--cookies", cookiesPath);
     }
 

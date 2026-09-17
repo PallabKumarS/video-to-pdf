@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   clearCookies: () => ipcRenderer.invoke("youtube:clear-cookies"),
   downloadYoutube: (url) => ipcRenderer.invoke("youtube:download", url),
   loginGoogle: () => ipcRenderer.invoke("youtube:google-login"),
+  openBrowser: (url) => ipcRenderer.invoke("youtube:open-browser", url),
   onDownloadProgress: (callback) => {
     const handler = (_event, progress) => callback(progress);
     ipcRenderer.on("youtube:progress", handler);
