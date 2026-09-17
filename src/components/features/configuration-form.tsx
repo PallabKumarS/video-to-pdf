@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import {
   Upload,
   FileVideo,
@@ -144,9 +145,9 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
         return;
       }
 
-      if (!electronAPI?.downloadYoutube) {
+      if (!electronAPI?.downloadYoutube && !Capacitor.isNativePlatform()) {
         toast.error(
-          "YouTube download is supported in the local desktop application.",
+          "Please use the Desktop or Android application to download YouTube videos locally.",
         );
         return;
       }
@@ -155,24 +156,72 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
       setYtProgress({ percent: 0, speed: "Starting...", eta: "" });
 
       try {
-        const res = await electronAPI.downloadYoutube(youtubeUrl.trim());
-        if (res?.success && res.data?.streamUrl) {
-          toast.success("YouTube video downloaded successfully!");
-          onSubmit({
-            video: res.data.streamUrl,
-            interval: values.interval,
-          });
-        } else {
-          const errorMsg = res?.error || "Download failed";
-          if (
-            errorMsg.includes("LOGIN_REQUIRED") ||
-            errorMsg.includes("Sign in") ||
-            errorMsg.includes("bot")
-          ) {
-            toast.error("This video requires a Google or YouTube login.");
-            setAuthModalOpen(true);
+        if (Capacitor.isNativePlatform()) {
+          interface YouTubeDownloaderPluginType {
+            downloadVideo: (options: { url: string }) => Promise<{
+              filePath: string;
+              streamUrl: string;
+              title: string;
+            }>;
+            addListener: (
+              eventName: string,
+              listenerFunc: (info: {
+                percent: number;
+                speed: string;
+                eta: string;
+              }) => void,
+            ) => Promise<{ remove: () => Promise<void> }>;
+          }
+
+          const NativeDownloader =
+            registerPlugin<YouTubeDownloaderPluginType>("YouTubeDownloader");
+
+          const listener = await NativeDownloader.addListener(
+            "youtube:progress",
+            (info) => {
+              setYtProgress(info);
+            },
+          );
+
+          try {
+            const res = await NativeDownloader.downloadVideo({
+              url: youtubeUrl.trim(),
+            });
+            await listener.remove();
+
+            if (res?.streamUrl) {
+              toast.success("YouTube video downloaded successfully!");
+              onSubmit({
+                video: res.streamUrl,
+                interval: values.interval,
+              });
+            } else {
+              toast.error("Could not retrieve video stream on Android.");
+            }
+          } catch (nativeErr) {
+            await listener.remove();
+            throw nativeErr;
+          }
+        } else if (electronAPI?.downloadYoutube) {
+          const res = await electronAPI.downloadYoutube(youtubeUrl.trim());
+          if (res?.success && res.data?.streamUrl) {
+            toast.success("YouTube video downloaded successfully!");
+            onSubmit({
+              video: res.data.streamUrl,
+              interval: values.interval,
+            });
           } else {
-            toast.error(errorMsg);
+            const errorMsg = res?.error || "Download failed";
+            if (
+              errorMsg.includes("LOGIN_REQUIRED") ||
+              errorMsg.includes("Sign in") ||
+              errorMsg.includes("bot")
+            ) {
+              toast.error("This video requires a Google or YouTube login.");
+              setAuthModalOpen(true);
+            } else {
+              toast.error(errorMsg);
+            }
           }
         }
       } catch (err) {
