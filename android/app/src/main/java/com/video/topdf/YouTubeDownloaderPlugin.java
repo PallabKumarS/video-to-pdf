@@ -25,8 +25,12 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.json.JSONArray;
@@ -35,8 +39,10 @@ import org.json.JSONObject;
 @CapacitorPlugin(name = "YouTubeDownloader")
 public class YouTubeDownloaderPlugin extends Plugin {
 
-    private static final String VR_USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 12; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/34.0.0.30.22 Chrome/124.0.6367.247 Safari/537.36";
+    private static final String BROWSER_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+    private static final String VISIONOS_USER_AGENT =
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
 
     @PluginMethod
     public void checkCookies(PluginCall call) {
@@ -90,7 +96,7 @@ public class YouTubeDownloaderPlugin extends Plugin {
                 cancelButton.setBackgroundColor(Color.TRANSPARENT);
 
                 TextView titleView = new TextView(context);
-                titleView.setText("Sign in to Google / YouTube");
+                titleView.setText("Sign in with Google");
                 titleView.setTextColor(Color.WHITE);
                 titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
                 titleView.setGravity(Gravity.CENTER);
@@ -196,58 +202,356 @@ public class YouTubeDownloaderPlugin extends Plugin {
 
         new Thread(() -> {
             try {
-                String directStreamUrl = resolveYouTubeStream(videoId);
-                if (directStreamUrl == null || directStreamUrl.isEmpty()) {
-                    call.reject("LOGIN_REQUIRED: Could not retrieve direct stream. Authentication or cookies required.");
-                    return;
+                // Step 1: Load video watch page to retrieve session cookies, visitor data, and signature timestamp
+                URL watchUrl = new URL("https://www.youtube.com/watch?v=" + videoId);
+                HttpURLConnection watchConn = (HttpURLConnection) watchUrl.openConnection();
+                watchConn.setRequestProperty("User-Agent", BROWSER_USER_AGENT);
+                watchConn.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
+                String savedCookies = getFormattedCookies();
+                if (!savedCookies.isEmpty()) {
+                    watchConn.setRequestProperty("Cookie", savedCookies);
                 }
 
-                File outputDir = getContext().getCacheDir();
-                File targetFile = new File(outputDir, "vidtopdf_" + videoId + ".mp4");
-
-                HttpURLConnection conn = openConnectionWithRedirects(directStreamUrl);
-                int responseCode = conn.getResponseCode();
-                if (responseCode >= 400) {
-                    call.reject("Stream request failed with HTTP " + responseCode);
-                    return;
-                }
-
-                long totalBytes = conn.getContentLengthLong();
-                long downloadedBytes = 0;
-
-                try (InputStream in = conn.getInputStream(); FileOutputStream out = new FileOutputStream(targetFile)) {
-                    byte[] buffer = new byte[64 * 1024];
-                    int bytesRead;
-                    long lastEmitTime = System.currentTimeMillis();
-
-                    while ((bytesRead = in.read(buffer)) != -1) {
-                        out.write(buffer, 0, bytesRead);
-                        downloadedBytes += bytesRead;
-
-                        long now = System.currentTimeMillis();
-                        if (now - lastEmitTime > 300 && totalBytes > 0) {
-                            lastEmitTime = now;
-                            double percent = (downloadedBytes * 100.0) / totalBytes;
-                            JSObject progressData = new JSObject();
-                            progressData.put("percent", Math.round(percent * 10.0) / 10.0);
-                            progressData.put("speed", "Downloading...");
-                            progressData.put("eta", "");
-                            notifyListeners("youtube:progress", progressData);
+                StringBuilder htmlBuilder = new StringBuilder();
+                StringBuilder watchCookiesBuilder = new StringBuilder();
+                Map<String, List<String>> headerFields = watchConn.getHeaderFields();
+                List<String> setCookies = headerFields.get("Set-Cookie");
+                if (setCookies != null) {
+                    for (String sc : setCookies) {
+                        String cleanCookie = sc.split(";")[0].trim();
+                        if (!cleanCookie.isEmpty()) {
+                            if (watchCookiesBuilder.length() > 0) watchCookiesBuilder.append("; ");
+                            watchCookiesBuilder.append(cleanCookie);
                         }
                     }
                 }
 
-                JSObject result = new JSObject();
-                result.put("filePath", targetFile.getAbsolutePath());
-                result.put("streamUrl", "capacitor://localhost/_capacitor_file_" + targetFile.getAbsolutePath());
-                result.put("title", "YouTube Video (" + videoId + ")");
-                call.resolve(result);
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(watchConn.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        htmlBuilder.append(line);
+                    }
+                }
+
+                String html = htmlBuilder.toString();
+                String visitorData = "";
+                Pattern vPattern = Pattern.compile("\"VISITOR_DATA\":\\s*\"([^\"]+)\"");
+                Matcher vMatcher = vPattern.matcher(html);
+                if (vMatcher.find()) {
+                    visitorData = vMatcher.group(1);
+                }
+
+                int signatureTimestamp = 20710;
+                Pattern stsPattern = Pattern.compile("\"signatureTimestamp\":\\s*(\\d+)");
+                Matcher stsMatcher = stsPattern.matcher(html);
+                if (stsMatcher.find()) {
+                    try {
+                        signatureTimestamp = Integer.parseInt(stsMatcher.group(1));
+                    } catch (Exception ignored) {}
+                }
+
+                // Step 2: Query Innertube Player API using VISIONOS client profile
+                URL playerUrl = new URL("https://www.youtube.com/youtubei/v1/player?prettyPrint=false");
+                HttpURLConnection playerConn = (HttpURLConnection) playerUrl.openConnection();
+                playerConn.setRequestMethod("POST");
+                playerConn.setRequestProperty("Content-Type", "application/json");
+                playerConn.setRequestProperty("User-Agent", VISIONOS_USER_AGENT);
+                playerConn.setRequestProperty("X-Youtube-Client-Name", "101");
+                playerConn.setRequestProperty("X-Youtube-Client-Version", "1.02");
+                playerConn.setRequestProperty("Origin", "https://www.youtube.com");
+                if (!visitorData.isEmpty()) {
+                    playerConn.setRequestProperty("X-Goog-Visitor-Id", visitorData);
+                }
+
+                StringBuilder combinedCookies = new StringBuilder();
+                if (watchCookiesBuilder.length() > 0) {
+                    combinedCookies.append(watchCookiesBuilder);
+                }
+                if (!savedCookies.isEmpty()) {
+                    if (combinedCookies.length() > 0) combinedCookies.append("; ");
+                    combinedCookies.append(savedCookies);
+                }
+                combinedCookies.append("; GPS=1; PREF=hl=en&tz=UTC; SOCS=CAI;");
+                playerConn.setRequestProperty("Cookie", combinedCookies.toString());
+                playerConn.setDoOutput(true);
+
+                JSONObject clientObj = new JSONObject();
+                clientObj.put("clientName", "VISIONOS");
+                clientObj.put("clientVersion", "1.02");
+                clientObj.put("deviceMake", "Apple");
+                clientObj.put("deviceModel", "RealityDevice17,1");
+                clientObj.put("osName", "visionOS");
+                clientObj.put("osVersion", "26.5.23O471");
+                clientObj.put("hl", "en");
+                clientObj.put("timeZone", "UTC");
+                clientObj.put("utcOffsetMinutes", 0);
+
+                JSONObject contextObj = new JSONObject();
+                contextObj.put("client", clientObj);
+
+                JSONObject contentPlaybackContext = new JSONObject();
+                contentPlaybackContext.put("html5Preference", "HTML5_PREF_WANTS");
+                contentPlaybackContext.put("signatureTimestamp", signatureTimestamp);
+
+                JSONObject playbackContext = new JSONObject();
+                playbackContext.put("contentPlaybackContext", contentPlaybackContext);
+
+                JSONObject postData = new JSONObject();
+                postData.put("context", contextObj);
+                postData.put("videoId", videoId);
+                postData.put("playbackContext", playbackContext);
+                postData.put("contentCheckOk", true);
+                postData.put("racyCheckOk", true);
+
+                byte[] postBytes = postData.toString().getBytes("UTF-8");
+                try (OutputStream os = playerConn.getOutputStream()) {
+                    os.write(postBytes);
+                }
+
+                if (playerConn.getResponseCode() != 200) {
+                    call.reject("Player API request failed with HTTP " + playerConn.getResponseCode());
+                    return;
+                }
+
+                StringBuilder playerRespBuilder = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(playerConn.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        playerRespBuilder.append(line);
+                    }
+                }
+
+                JSONObject playerJson = new JSONObject(playerRespBuilder.toString());
+                if (playerJson.has("playabilityStatus")) {
+                    JSONObject playability = playerJson.getJSONObject("playabilityStatus");
+                    String status = playability.optString("status", "UNKNOWN");
+                    if (!"OK".equalsIgnoreCase(status)) {
+                        String reason = playability.optString("reason", "Video is unavailable or requires sign-in.");
+                        if ("LOGIN_REQUIRED".equalsIgnoreCase(status) || reason.toLowerCase().contains("bot") || reason.toLowerCase().contains("sign in")) {
+                            call.reject("LOGIN_REQUIRED: " + reason);
+                        } else {
+                            call.reject(reason);
+                        }
+                        return;
+                    }
+                }
+
+                if (!playerJson.has("streamingData")) {
+                    call.reject("No streaming data available for this video.");
+                    return;
+                }
+
+                JSONObject streamingData = playerJson.getJSONObject("streamingData");
+                File outputDir = getContext().getCacheDir();
+                File targetFile = new File(outputDir, "vidtopdf_" + videoId + ".mp4");
+
+                // Case A: Direct Progressive Stream URL exists
+                String directUrl = extractDirectStreamUrl(streamingData);
+                if (directUrl != null && !directUrl.isEmpty()) {
+                    downloadDirectStream(directUrl, targetFile, call);
+                    return;
+                }
+
+                // Case B: HLS Manifest URL exists
+                if (streamingData.has("hlsManifestUrl")) {
+                    String hlsManifestUrl = streamingData.getString("hlsManifestUrl");
+                    downloadHlsStream(hlsManifestUrl, targetFile, videoId, call);
+                    return;
+                }
+
+                call.reject("Could not find a playable stream URL for this video.");
 
             } catch (Exception e) {
                 String message = e.getMessage() != null ? e.getMessage() : "Unknown error";
                 call.reject(message);
             }
         }).start();
+    }
+
+    private String extractDirectStreamUrl(JSONObject streamingData) {
+        try {
+            if (streamingData.has("formats")) {
+                JSONArray formats = streamingData.getJSONArray("formats");
+                for (int i = 0; i < formats.length(); i++) {
+                    JSONObject fmt = formats.getJSONObject(i);
+                    if (fmt.has("url") && fmt.optString("mimeType", "").contains("video/mp4")) {
+                        return fmt.getString("url");
+                    }
+                }
+                for (int i = 0; i < formats.length(); i++) {
+                    JSONObject fmt = formats.getJSONObject(i);
+                    if (fmt.has("url")) {
+                        return fmt.getString("url");
+                    }
+                }
+            }
+
+            if (streamingData.has("adaptiveFormats")) {
+                JSONArray adaptive = streamingData.getJSONArray("adaptiveFormats");
+                for (int i = 0; i < adaptive.length(); i++) {
+                    JSONObject fmt = adaptive.getJSONObject(i);
+                    if (fmt.has("url") && fmt.optString("mimeType", "").contains("video/mp4")) {
+                        String quality = fmt.optString("qualityLabel", "");
+                        if (quality.contains("720") || quality.contains("1080")) {
+                            return fmt.getString("url");
+                        }
+                    }
+                }
+                for (int i = 0; i < adaptive.length(); i++) {
+                    JSONObject fmt = adaptive.getJSONObject(i);
+                    if (fmt.has("url") && fmt.optString("mimeType", "").contains("video/mp4")) {
+                        return fmt.getString("url");
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private void downloadDirectStream(String streamUrl, File targetFile, PluginCall call) {
+        try {
+            HttpURLConnection conn = openConnectionWithRedirects(streamUrl);
+            int responseCode = conn.getResponseCode();
+            if (responseCode >= 400) {
+                call.reject("Stream request failed with HTTP " + responseCode);
+                return;
+            }
+
+            long totalBytes = conn.getContentLengthLong();
+            long downloadedBytes = 0;
+
+            try (InputStream in = conn.getInputStream(); FileOutputStream out = new FileOutputStream(targetFile)) {
+                byte[] buffer = new byte[64 * 1024];
+                int bytesRead;
+                long lastEmitTime = System.currentTimeMillis();
+
+                while ((bytesRead = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, bytesRead);
+                    downloadedBytes += bytesRead;
+
+                    long now = System.currentTimeMillis();
+                    if (now - lastEmitTime > 300 && totalBytes > 0) {
+                        lastEmitTime = now;
+                        double percent = (downloadedBytes * 100.0) / totalBytes;
+                        emitProgress(Math.round(percent * 10.0) / 10.0, "Downloading...");
+                    }
+                }
+            }
+
+            emitProgress(100.0, "Complete");
+            JSObject result = new JSObject();
+            result.put("filePath", targetFile.getAbsolutePath());
+            result.put("streamUrl", "capacitor://localhost/_capacitor_file_" + targetFile.getAbsolutePath());
+            result.put("title", targetFile.getName());
+            call.resolve(result);
+
+        } catch (Exception e) {
+            call.reject("Download error: " + e.getMessage());
+        }
+    }
+
+    private void downloadHlsStream(String hlsManifestUrl, File targetFile, String videoId, PluginCall call) {
+        try {
+            // Fetch Master Playlist
+            URL mUrl = new URL(hlsManifestUrl);
+            HttpURLConnection mConn = (HttpURLConnection) mUrl.openConnection();
+            mConn.setRequestProperty("User-Agent", BROWSER_USER_AGENT);
+
+            List<String> masterLines = new ArrayList<>();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(mConn.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    masterLines.add(line.trim());
+                }
+            }
+
+            // Find 720p or 360p sub-stream playlist URL
+            String subPlaylistUrl = "";
+            for (int i = 0; i < masterLines.size(); i++) {
+                String line = masterLines.get(i);
+                if (line.contains("RESOLUTION=1280x720") || line.contains("RESOLUTION=640x360")) {
+                    if (i + 1 < masterLines.size()) {
+                        subPlaylistUrl = masterLines.get(i + 1);
+                        if (line.contains("RESOLUTION=1280x720")) break;
+                    }
+                }
+            }
+            if (subPlaylistUrl.isEmpty()) {
+                for (String line : masterLines) {
+                    if (line.startsWith("https://")) {
+                        subPlaylistUrl = line;
+                        break;
+                    }
+                }
+            }
+
+            if (subPlaylistUrl.isEmpty()) {
+                call.reject("Could not find HLS video stream variant.");
+                return;
+            }
+
+            // Fetch Sub Playlist
+            URL subUrl = new URL(subPlaylistUrl);
+            HttpURLConnection subConn = (HttpURLConnection) subUrl.openConnection();
+            subConn.setRequestProperty("User-Agent", BROWSER_USER_AGENT);
+
+            List<String> segmentUrls = new ArrayList<>();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(subConn.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String trimmed = line.trim();
+                    if (trimmed.startsWith("https://")) {
+                        segmentUrls.add(trimmed);
+                    }
+                }
+            }
+
+            if (segmentUrls.isEmpty()) {
+                call.reject("HLS stream has no playable video segments.");
+                return;
+            }
+
+            // Sequentially download and stitch segments into standard video file
+            int totalSegments = segmentUrls.size();
+            byte[] buffer = new byte[64 * 1024];
+
+            try (FileOutputStream out = new FileOutputStream(targetFile)) {
+                for (int i = 0; i < totalSegments; i++) {
+                    String segUrl = segmentUrls.get(i);
+                    URL sUrl = new URL(segUrl);
+                    HttpURLConnection sConn = (HttpURLConnection) sUrl.openConnection();
+                    sConn.setRequestProperty("User-Agent", BROWSER_USER_AGENT);
+
+                    try (InputStream in = sConn.getInputStream()) {
+                        int read;
+                        while ((read = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, read);
+                        }
+                    }
+
+                    double percent = Math.round(((i + 1) * 1000.0) / totalSegments) / 10.0;
+                    emitProgress(percent, (i + 1) + "/" + totalSegments + " segments");
+                }
+            }
+
+            emitProgress(100.0, "Complete");
+            JSObject result = new JSObject();
+            result.put("filePath", targetFile.getAbsolutePath());
+            result.put("streamUrl", "capacitor://localhost/_capacitor_file_" + targetFile.getAbsolutePath());
+            result.put("title", "YouTube Video (" + videoId + ")");
+            call.resolve(result);
+
+        } catch (Exception e) {
+            call.reject("HLS download error: " + e.getMessage());
+        }
+    }
+
+    private void emitProgress(double percent, String speed) {
+        JSObject progressData = new JSObject();
+        progressData.put("percent", percent);
+        progressData.put("speed", speed);
+        progressData.put("eta", "");
+        notifyListeners("youtube:progress", progressData);
     }
 
     private HttpURLConnection openConnectionWithRedirects(String initialUrl) throws Exception {
@@ -260,7 +564,7 @@ public class YouTubeDownloaderPlugin extends Plugin {
             URL url = new URL(currentUrl);
             conn = (HttpURLConnection) url.openConnection();
             conn.setInstanceFollowRedirects(true);
-            conn.setRequestProperty("User-Agent", VR_USER_AGENT);
+            conn.setRequestProperty("User-Agent", BROWSER_USER_AGENT);
             if (!cookies.isEmpty()) {
                 conn.setRequestProperty("Cookie", cookies);
             }
@@ -311,122 +615,5 @@ public class YouTubeDownloaderPlugin extends Plugin {
             sb.append(googleCookies);
         }
         return sb.toString();
-    }
-
-    private String resolveYouTubeStream(String videoId) throws Exception {
-        URL url = new URL("https://www.youtube.com/youtubei/v1/player?prettyPrint=false");
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setRequestProperty("User-Agent", VR_USER_AGENT);
-
-        String cookies = getFormattedCookies();
-        if (!cookies.isEmpty()) {
-            conn.setRequestProperty("Cookie", cookies);
-        }
-        conn.setDoOutput(true);
-
-        JSONObject clientObj = new JSONObject();
-        clientObj.put("clientName", "ANDROID_VR");
-        clientObj.put("clientVersion", "1.61.48");
-        clientObj.put("deviceModel", "Quest 3");
-        clientObj.put("osName", "Android");
-        clientObj.put("osVersion", "12");
-
-        JSONObject contextObj = new JSONObject();
-        contextObj.put("client", clientObj);
-
-        JSONObject postData = new JSONObject();
-        postData.put("context", contextObj);
-        postData.put("videoId", videoId);
-
-        byte[] postBytes = postData.toString().getBytes("UTF-8");
-        conn.getOutputStream().write(postBytes);
-
-        if (conn.getResponseCode() != 200) {
-            return null;
-        }
-
-        StringBuilder response = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
-            }
-        }
-
-        JSONObject json = new JSONObject(response.toString());
-
-        if (json.has("playabilityStatus")) {
-            JSONObject playability = json.getJSONObject("playabilityStatus");
-            String status = playability.optString("status", "UNKNOWN");
-            if (!"OK".equalsIgnoreCase(status)) {
-                String reason = playability.optString("reason", "Video is unavailable or requires sign-in.");
-                if ("LOGIN_REQUIRED".equalsIgnoreCase(status) || reason.toLowerCase().contains("bot") || reason.toLowerCase().contains("sign in")) {
-                    throw new Exception("LOGIN_REQUIRED: " + reason);
-                }
-                throw new Exception(reason);
-            }
-        }
-
-        if (!json.has("streamingData")) {
-            return null;
-        }
-
-        JSONObject streamingData = json.getJSONObject("streamingData");
-
-        // Strategy 1: High quality 720p/1080p MP4 from adaptiveFormats (best for video-to-pdf slide crispness)
-        if (streamingData.has("adaptiveFormats")) {
-            JSONArray adaptive = streamingData.getJSONArray("adaptiveFormats");
-            
-            // Prefer 720p MP4
-            for (int i = 0; i < adaptive.length(); i++) {
-                JSONObject fmt = adaptive.getJSONObject(i);
-                if (fmt.has("url") && fmt.has("mimeType") && fmt.getString("mimeType").contains("video/mp4")) {
-                    String quality = fmt.optString("qualityLabel", "");
-                    if (quality.contains("720")) {
-                        return fmt.getString("url");
-                    }
-                }
-            }
-
-            // Next prefer 1080p MP4
-            for (int i = 0; i < adaptive.length(); i++) {
-                JSONObject fmt = adaptive.getJSONObject(i);
-                if (fmt.has("url") && fmt.has("mimeType") && fmt.getString("mimeType").contains("video/mp4")) {
-                    String quality = fmt.optString("qualityLabel", "");
-                    if (quality.contains("1080")) {
-                        return fmt.getString("url");
-                    }
-                }
-            }
-
-            // Any MP4 adaptive format
-            for (int i = 0; i < adaptive.length(); i++) {
-                JSONObject fmt = adaptive.getJSONObject(i);
-                if (fmt.has("url") && fmt.has("mimeType") && fmt.getString("mimeType").contains("video/mp4")) {
-                    return fmt.getString("url");
-                }
-            }
-        }
-
-        // Strategy 2: Muxed formats (360p MP4)
-        if (streamingData.has("formats")) {
-            JSONArray formats = streamingData.getJSONArray("formats");
-            for (int i = 0; i < formats.length(); i++) {
-                JSONObject fmt = formats.getJSONObject(i);
-                if (fmt.has("url") && fmt.has("mimeType") && fmt.getString("mimeType").contains("video/mp4")) {
-                    return fmt.getString("url");
-                }
-            }
-            for (int i = 0; i < formats.length(); i++) {
-                JSONObject fmt = formats.getJSONObject(i);
-                if (fmt.has("url")) {
-                    return fmt.getString("url");
-                }
-            }
-        }
-
-        return null;
     }
 }
