@@ -80,12 +80,11 @@ export async function startLocalMediaServer() {
 
       if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
-        const start = parseInt(parts[0], 10);
-        const chunkSizeLimit = 5 * 1024 * 1024;
-        const end = parts[1]
-          ? parseInt(parts[1], 10)
-          : Math.min(start + chunkSizeLimit - 1, fileSize - 1);
-        const chunksize = end - start + 1;
+        const start = parts[0]
+          ? parseInt(parts[0], 10)
+          : Math.max(0, fileSize - parseInt(parts[1], 10));
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
         const fileStream = fs.createReadStream(currentVideoPath, {
           start,
           end,
@@ -94,7 +93,7 @@ export async function startLocalMediaServer() {
         res.writeHead(206, {
           "Content-Range": `bytes ${start}-${end}/${fileSize}`,
           "Accept-Ranges": "bytes",
-          "Content-Length": chunksize,
+          "Content-Length": chunkSize,
           "Content-Type": "video/mp4",
         });
         fileStream.pipe(res);

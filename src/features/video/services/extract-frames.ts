@@ -3,6 +3,7 @@
  * using high-performance sequential seek and canvas capture.
  */
 
+import { Capacitor } from "@capacitor/core";
 import {
   createOffscreenOrDOMCanvas,
   drawVideoToJpegDataUrl,
@@ -29,11 +30,16 @@ export async function extractFrames(
   try {
     const video = document.createElement("video");
     video.preload = "auto";
+    const isCapacitorLocal =
+      typeof source === "string" &&
+      (source.startsWith("capacitor:") ||
+        source.includes("_capacitor_file_") ||
+        (Capacitor.isNativePlatform() && source.includes("localhost")));
+
     if (
       typeof source === "string" &&
       (source.startsWith("http://") || source.startsWith("https://")) &&
-      !source.includes("localhost") &&
-      !source.includes("127.0.0.1")
+      !isCapacitorLocal
     ) {
       video.crossOrigin = "anonymous";
     }

@@ -51,7 +51,7 @@ export function SegmentProcessor({
   const [totalSegments, setTotalSegments] = useState(1);
   const [error, setError] = useState<string | null>(null);
 
-  type Status = "idle" | "extracting" | "done";
+  type Status = "idle" | "extracting" | "done" | "error";
   const [framesBySegment, setFramesBySegment] = useState<
     Record<number, ExtractedFrame[]>
   >({});
@@ -176,7 +176,7 @@ export function SegmentProcessor({
         setError(
           err instanceof Error ? err.message : "Failed to extract frames",
         );
-        setStatusBySegment((prev) => ({ ...prev, [targetSegment]: "idle" }));
+        setStatusBySegment((prev) => ({ ...prev, [targetSegment]: "error" }));
       }
     };
 
@@ -236,9 +236,20 @@ export function SegmentProcessor({
           </CardTitle>
           <CardDescription>{error}</CardDescription>
         </CardHeader>
-        <CardFooter>
+        <CardFooter className="flex gap-3">
           <Button variant="outline" onClick={onCancel}>
             Go Back
+          </Button>
+          <Button
+            onClick={() => {
+              setError(null);
+              setStatusBySegment((prev) => ({
+                ...prev,
+                [currentSegment]: "idle",
+              }));
+            }}
+          >
+            Retry Extraction
           </Button>
         </CardFooter>
       </Card>

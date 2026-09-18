@@ -146,11 +146,10 @@ function handleStreamVideo(req, res, filePath) {
 
   if (range) {
     const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const chunkSizeLimit = 5 * 1024 * 1024; // 5MB chunk limit for rapid seek responsiveness
-    const end = parts[1]
-      ? parseInt(parts[1], 10)
-      : Math.min(start + chunkSizeLimit - 1, fileSize - 1);
+    const start = parts[0]
+      ? parseInt(parts[0], 10)
+      : Math.max(0, fileSize - parseInt(parts[1], 10));
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
     const chunkSize = end - start + 1;
     const stream = fs.createReadStream(filePath, { start, end });
 

@@ -3,6 +3,8 @@
  * its playback duration and dimensions.
  */
 
+import { Capacitor } from "@capacitor/core";
+
 export interface VideoMetadata {
   duration: number;
   width: number;
@@ -16,12 +18,16 @@ export async function getVideoMetadata(
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
     video.preload = "metadata";
-    // Only set crossOrigin for remote HTTP(S) domains; setting it on blob, capacitor, or localhost breaks playback
+    const isCapacitorLocal =
+      typeof source === "string" &&
+      (source.startsWith("capacitor:") ||
+        source.includes("_capacitor_file_") ||
+        (Capacitor.isNativePlatform() && source.includes("localhost")));
+
     if (
       typeof source === "string" &&
       (source.startsWith("http://") || source.startsWith("https://")) &&
-      !source.includes("localhost") &&
-      !source.includes("127.0.0.1")
+      !isCapacitorLocal
     ) {
       video.crossOrigin = "anonymous";
     }
